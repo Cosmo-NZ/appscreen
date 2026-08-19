@@ -1520,6 +1520,8 @@ function saveState() {
             popouts: s.popouts || [],
             continueFromPrev: s.continueFromPrev || false,
             continueFromNext: s.continueFromNext || false,
+            continuePrevInFront: s.continuePrevInFront || false,
+            continueNextInFront: s.continueNextInFront || false,
             overrides: s.overrides
         };
     });
@@ -1672,6 +1674,8 @@ function loadState() {
                                     popouts: s.popouts || [],
                                     continueFromPrev: s.continueFromPrev || false,
                                     continueFromNext: s.continueFromNext || false,
+                                    continuePrevInFront: s.continuePrevInFront || false,
+                                    continueNextInFront: s.continueNextInFront || false,
                                     overrides: s.overrides || {}
                                 };
                                 loadedCount++;
@@ -1713,6 +1717,8 @@ function loadState() {
                                                     popouts: s.popouts || [],
                                                     continueFromPrev: s.continueFromPrev || false,
                                                     continueFromNext: s.continueFromNext || false,
+                                                    continuePrevInFront: s.continuePrevInFront || false,
+                                                    continueNextInFront: s.continueNextInFront || false,
                                                     overrides: s.overrides || {}
                                                 };
                                                 loadedCount++;
@@ -1760,6 +1766,8 @@ function loadState() {
                                         popouts: s.popouts || [],
                                         continueFromPrev: s.continueFromPrev || false,
                                         continueFromNext: s.continueFromNext || false,
+                                        continuePrevInFront: s.continuePrevInFront || false,
+                                        continueNextInFront: s.continueNextInFront || false,
                                         overrides: s.overrides || {}
                                     };
                                     loadedCount++;
@@ -2055,7 +2063,9 @@ function duplicateScreenshot(index) {
         text: original.text,
         overrides: original.overrides,
         continueFromPrev: original.continueFromPrev || false,
-        continueFromNext: original.continueFromNext || false
+        continueFromNext: original.continueFromNext || false,
+        continuePrevInFront: original.continuePrevInFront || false,
+        continueNextInFront: original.continueNextInFront || false
     }));
 
     // Background image is not JSON serializable - carry the Image object over
@@ -2352,6 +2362,20 @@ function syncUIWithState() {
         continueNext.classList.toggle('active', !!(current && current.continueFromNext));
         continuePrev.classList.toggle('disabled', !hasPrev);
         continueNext.classList.toggle('disabled', !hasNext);
+
+        // Behind/In Front selector, shown only while that direction is enabled
+        [
+            { depthId: 'continue-prev-depth', on: hasPrev && current && current.continueFromPrev, key: 'continuePrevInFront' },
+            { depthId: 'continue-next-depth', on: hasNext && current && current.continueFromNext, key: 'continueNextInFront' }
+        ].forEach(entry => {
+            const group = document.getElementById(entry.depthId);
+            if (!group) return;
+            group.style.display = entry.on ? '' : 'none';
+            const wanted = (current && current[entry.key]) ? 'front' : 'behind';
+            group.querySelectorAll('button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.depth === wanted);
+            });
+        });
     }
 
     // Elements
@@ -4753,8 +4777,8 @@ function setupEventListeners() {
 
     // Continuation toggles
     [
-        { id: 'continue-prev-toggle', key: 'continueFromPrev' },
-        { id: 'continue-next-toggle', key: 'continueFromNext' }
+        { id: 'continue-prev-toggle', key: 'continueFromPrev', depthId: 'continue-prev-depth' },
+        { id: 'continue-next-toggle', key: 'continueFromNext', depthId: 'continue-next-depth' }
     ].forEach(entry => {
         const toggle = document.getElementById(entry.id);
         if (!toggle) return;
@@ -4763,8 +4787,33 @@ function setupEventListeners() {
             const screenshot = getCurrentScreenshot();
             if (!screenshot) return;
             this.classList.toggle('active');
-            screenshot[entry.key] = this.classList.contains('active');
+            const enabled = this.classList.contains('active');
+            screenshot[entry.key] = enabled;
+            // Reveal/hide this direction's Behind/In Front selector. Done inline
+            // rather than via syncUIWithState, which clears the element and
+            // popout selection as a side effect.
+            const group = document.getElementById(entry.depthId);
+            if (group) group.style.display = enabled ? '' : 'none';
             updateCanvas();
+        });
+    });
+
+    // Continuation depth (Behind / In Front) selectors
+    [
+        { id: 'continue-prev-depth', key: 'continuePrevInFront' },
+        { id: 'continue-next-depth', key: 'continueNextInFront' }
+    ].forEach(entry => {
+        const group = document.getElementById(entry.id);
+        if (!group) return;
+        group.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const screenshot = getCurrentScreenshot();
+                if (!screenshot) return;
+                group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                screenshot[entry.key] = btn.dataset.depth === 'front';
+                updateCanvas();
+            });
         });
     });
 }
@@ -6275,6 +6324,8 @@ function createNewScreenshot(img, src, name, lang, deviceType) {
         popouts: [],
         continueFromPrev: false,
         continueFromNext: false,
+        continuePrevInFront: false,
+        continueNextInFront: false,
         // Legacy overrides for backwards compatibility
         overrides: {}
     });
@@ -7149,8 +7200,8 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
     // Elements behind screenshot
     drawElementsToContext(targetCtx, dims, elements, 'behind-screenshot');
 
-    // Neighbour devices bleeding across the shared edge, under this slide's own device
-    drawContinuationDevices(targetCtx, dims, index);
+    // Neighbour devices set to sit behind this slide's own device
+    drawContinuationDevices(targetCtx, dims, index, 'behind');
 
     // Draw screenshot - 3D if active for this screenshot, otherwise 2D
     const settings = screenshot.screenshot;
@@ -7165,6 +7216,10 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
             drawScreenshotToContext(targetCtx, dims, img, settings);
         }
     }
+
+    // Neighbour devices set to sit in front of this slide's own device. Still
+    // within the device band, so above-screenshot elements remain on top.
+    drawContinuationDevices(targetCtx, dims, index, 'front');
 
     // Elements above screenshot
     drawElementsToContext(targetCtx, dims, elements, 'above-screenshot');
@@ -7509,17 +7564,23 @@ function drawTextToContext(context, dims, txt) {
 // A slide can render an adjacent slide's device translated by exactly one canvas
 // width, so a device bleeding off one slide appears to continue onto this one.
 // Everything is derived from the neighbour at render time - nothing is stored.
-function drawContinuationDevices(context, dims, index) {
+// `band` is 'behind' or 'front' - which side of this slide's own device to draw
+// on. Each direction chooses independently, so a slide with both neighbours
+// continuing can put one in front and the other behind.
+function drawContinuationDevices(context, dims, index, band) {
     const screenshot = state.screenshots[index];
     if (!screenshot) return;
 
     const links = [
-        { enabled: screenshot.continueFromPrev, source: index - 1, offsetX: -dims.width, tile: 1 },
-        { enabled: screenshot.continueFromNext, source: index + 1, offsetX: dims.width, tile: -1 }
+        { enabled: screenshot.continueFromPrev, inFront: screenshot.continuePrevInFront,
+          source: index - 1, offsetX: -dims.width, tile: 1 },
+        { enabled: screenshot.continueFromNext, inFront: screenshot.continueNextInFront,
+          source: index + 1, offsetX: dims.width, tile: -1 }
     ];
 
     links.forEach(link => {
         if (!link.enabled) return;
+        if ((link.inFront ? 'front' : 'behind') !== band) return;
         const source = state.screenshots[link.source];
         if (!source) return;
 
