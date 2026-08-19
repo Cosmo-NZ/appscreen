@@ -74,9 +74,9 @@
     function baseScreenshot(shot) {
         return {
             image: shot ? shot.image : null,
-            name: 'fixture.png',
+            name: '__rb-fixture.png',
             deviceType: 'iPhone',
-            localizedImages: shot ? { en: { image: shot.image, src: shot.src, name: 'fixture.png' } } : {},
+            localizedImages: shot ? { en: { image: shot.image, src: shot.src, name: '__rb-fixture.png' } } : {},
             background: JSON.parse(JSON.stringify(state.defaults.background)),
             screenshot: JSON.parse(JSON.stringify(state.defaults.screenshot)),
             text: normalizeTextSettings(state.defaults.text),
@@ -183,7 +183,23 @@
 
     // ---- capture -------------------------------------------------------------
 
+    const FIXTURE_NAME = '__rb-fixture.png';
+
+    function assertNoLeakedFixtures() {
+        const leaked = (state.screenshots || []).filter(s => s && s.name === FIXTURE_NAME);
+        if (leaked.length) {
+            throw new Error(
+                'render-baseline: the live project already contains ' + leaked.length +
+                ' harness fixture(s). A previous run was interrupted before it could ' +
+                'restore. Reload the page before running again - continuing would ' +
+                'snapshot these fixtures as your real project and persist them.'
+            );
+        }
+    }
+
     async function renderAll() {
+        assertNoLeakedFixtures();
+
         const realRandom = Math.random;
         const realSaveState = window.saveState;
         const snapshot = {
