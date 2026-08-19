@@ -32,7 +32,12 @@ const deviceConfigs = {
     iphone: {
         modelPath: 'models/iphone-15-pro-max.glb',
         aspectRatio: 1290 / 2796,
-        screenHeightFactor: 0.826,
+        // 0.826 sized the screen overlay fractionally smaller than the model's
+        // own screen surface, which is near-white - so a sub-pixel rim of it
+        // showed around the entire screen perimeter as a thin white outline
+        // (dashed, before MSAA). Calibrated by sweep: the rim disappears at
+        // 1.01x and the dark bezel is measurably unchanged.
+        screenHeightFactor: 0.834,
         screenOffset: { x: 0.027, y: 0.745, z: 0.098 },
         positionOffsetFactor: 0.81,
         cornerRadiusFactor: 0.16,
