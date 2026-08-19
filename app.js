@@ -6160,6 +6160,10 @@ async function processDesktopImageFile(fileData) {
             if (ss.use3D && typeof updateScreenTexture === 'function') {
                 updateScreenTexture();
             }
+            // createNewScreenshot may have changed selectedIndex/list length, which
+            // the continuation toggles' active/disabled classes depend on - resync,
+            // matching the "add blank screen" handler's established pattern.
+            syncUIWithState();
             updateCanvas();
             resolve();
         };
@@ -6227,6 +6231,10 @@ async function processImageFile(file) {
                 if (ss.use3D && typeof updateScreenTexture === 'function') {
                     updateScreenTexture();
                 }
+                // createNewScreenshot may have changed selectedIndex/list length, which
+                // the continuation toggles' active/disabled classes depend on - resync,
+                // matching the "add blank screen" handler's established pattern.
+                syncUIWithState();
                 updateCanvas();
                 resolve();
             };
@@ -6504,6 +6512,10 @@ function updateScreenshotList() {
                 }
 
                 updateScreenshotList();
+                // Reorder changes which slide sits at selectedIndex, which the
+                // continuation toggles' active/disabled classes depend on - resync,
+                // matching the "add blank screen" handler's established pattern.
+                syncUIWithState();
                 updateCanvas();
             }
         });
@@ -7161,7 +7173,12 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
     const popouts = screenshot.popouts || [];
     drawPopoutsToContext(targetCtx, dims, popouts, img, settings);
 
-    // Draw text
+    // Draw text. getText() normalised the screenshot's text settings as a side
+    // effect and the old drawText() path relied on it; renderScreenshotToCanvas
+    // is now the only render path, so it must do the same. Without this a
+    // legacy or partial text record renders differently here than in the
+    // preview, and a missing subheadlineColor throws out of hexToRgba.
+    screenshot.text = normalizeTextSettings(screenshot.text);
     const txt = screenshot.text;
     drawTextToContext(targetCtx, dims, txt);
 
