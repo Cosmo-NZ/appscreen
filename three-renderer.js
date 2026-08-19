@@ -163,7 +163,13 @@ function initThreeJS() {
     // Use device pixel ratio of 1 for fastest interactive rendering
     threeRenderer.setPixelRatio(1);
     threeRenderer.outputEncoding = THREE.sRGBEncoding;
-    threeRenderer.toneMapping = THREE.NoToneMapping;
+    // ACES rather than NoToneMapping: the titanium frame is a metallic material,
+    // so at mirror angles its specular highlight exceeds 1.0 and NoToneMapping
+    // hard-clipped it to pure white along the device silhouette - a hairline that
+    // read as a dashed line once downscaled. Dimming the lights does not fix this
+    // (measured: still clipping at 6/27 tilts even at 0.45x); rolling the
+    // highlights off does, at every tilt, with the lighting design unchanged.
+    threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
     // Disable automatic clearing - we control this manually
     threeRenderer.autoClear = false;
 
