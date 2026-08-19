@@ -86,7 +86,11 @@ Create `tests/render-baseline.js`:
     }
 
     function nextFrame() {
-        return new Promise(resolve => requestAnimationFrame(() => resolve()));
+        // Deliberately NOT requestAnimationFrame: rAF is suspended while the
+        // page is hidden (document.hidden === true), which hangs every capture
+        // when the harness is driven headlessly rather than in a visible tab.
+        // Canvas drawing is synchronous, so a macrotask yield is sufficient.
+        return new Promise(resolve => setTimeout(resolve, 0));
     }
 
     function waitFor(predicate, timeoutMs = 15000) {
@@ -329,7 +333,13 @@ const b = await renderBaseline.capture();
 JSON.stringify(a) === JSON.stringify(b);
 ```
 
-Expected: `true`, and a table of 11 fixtures.
+Expected: `true`, and a table of 10 fixtures.
+
+**A warm-up pass is required.** The first render after page load differs slightly
+from every subsequent one — a cold-start canvas/compositor effect that makes the
+first capture diverge from the second on several fixtures, not just the 3D one.
+`renderAll()` must render every fixture once and discard the result before the
+measured pass.
 
 If this prints `false`, the harness is not deterministic yet and **you must stop and fix it before proceeding** — a flaky baseline cannot protect Task 3. The likely culprit is `3d-iphone`: WebGL output can vary if the model or its texture is not fully settled. If two back-to-back captures differ only on `3d-iphone`, delete that fixture from `buildFixtures` and verify 3D by eye in Task 3 instead. Do not proceed with a baseline that does not reproduce.
 

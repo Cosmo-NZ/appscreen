@@ -34,7 +34,11 @@
     }
 
     function nextFrame() {
-        return new Promise(resolve => requestAnimationFrame(() => resolve()));
+        // Deliberately NOT requestAnimationFrame: rAF is suspended while the
+        // page is hidden (document.hidden === true), which hangs every capture
+        // when the harness is driven headlessly rather than in a visible tab.
+        // Canvas drawing is synchronous, so a macrotask yield is sufficient.
+        return new Promise(resolve => setTimeout(resolve, 0));
     }
 
     function waitFor(predicate, timeoutMs = 15000) {
