@@ -2048,6 +2048,27 @@ function duplicateScreenshot(index) {
         overrides: original.overrides
     }));
 
+    // Background image is not JSON serializable - carry the Image object over
+    if (original.background?.image) {
+        clone.background.image = original.background.image;
+    }
+
+    // Elements: deep copy with fresh ids, reusing the loaded Image objects
+    clone.elements = (original.elements || []).map(el => {
+        const copy = JSON.parse(JSON.stringify({ ...el, image: undefined }));
+        if ((el.type === 'graphic' || el.type === 'icon') && el.image) {
+            copy.image = el.image;
+        }
+        copy.id = crypto.randomUUID();
+        return copy;
+    });
+
+    // Popouts: crop regions still apply, since the copy uses the same source image
+    clone.popouts = (original.popouts || []).map(p => ({
+        ...JSON.parse(JSON.stringify(p)),
+        id: crypto.randomUUID()
+    }));
+
     const nameParts = clone.name.split('.');
     if (nameParts.length > 1) {
         const ext = nameParts.pop();
@@ -5384,7 +5405,7 @@ function showTranslateConfirmDialog(providerName) {
 
                 <div style="margin-bottom: 16px;">
                     <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">Source Language</label>
-                    <select id="translate-source-lang" style="width: 100%; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; cursor: pointer;">
+                    <select id="translate-all-source-lang" style="width: 100%; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; cursor: pointer;">
                         ${languageOptions}
                     </select>
                 </div>
@@ -5413,10 +5434,12 @@ function showTranslateConfirmDialog(providerName) {
 
         document.body.appendChild(overlay);
 
-        const select = document.getElementById('translate-source-lang');
-        const countEl = document.getElementById('translate-text-count');
-        const confirmBtn = document.getElementById('translate-confirm');
-        const cancelBtn = document.getElementById('translate-cancel');
+        // Scope lookups to this overlay - the translate modal in index.html has
+        // its own controls, so document-wide getElementById would match those instead
+        const select = overlay.querySelector('#translate-all-source-lang');
+        const countEl = overlay.querySelector('#translate-text-count');
+        const confirmBtn = overlay.querySelector('#translate-confirm');
+        const cancelBtn = overlay.querySelector('#translate-cancel');
 
         // Update count when language changes
         select.addEventListener('change', () => {
