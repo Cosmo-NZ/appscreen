@@ -6646,6 +6646,8 @@ function transferStyle(sourceIndex, targetIndex) {
     });
 
     // Explicitly skip popouts — crop regions are specific to each screenshot's source image
+    // Explicitly skip continueFromPrev/continueFromNext — a continuation is a
+    // positional relationship between neighbouring slides, not a style
 
     // Reset transfer mode
     state.transferTarget = null;
@@ -6707,6 +6709,8 @@ function applyStyleToAll() {
         });
 
         // Explicitly skip popouts — crop regions are specific to each screenshot's source image
+        // Explicitly skip continueFromPrev/continueFromNext — a continuation is a
+        // positional relationship between neighbouring slides, not a style
     });
 
     applyStyleSourceIndex = null;
