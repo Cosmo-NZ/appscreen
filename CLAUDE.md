@@ -72,6 +72,12 @@ neighbour's device translated by one canvas width. Fully derived at render time 
 nothing is copied, so slide reordering re-derives automatically. 3D uses
 `camera.setViewOffset` to render an off-axis tile rather than moving the model.
 
+`continuePrevInFront` / `continueNextInFront` choose which side of this slide's
+own device each continuation draws on. `drawContinuationDevices(ctx, dims, index,
+band)` runs twice per render, once per band ('behind' then 'front'), so the two
+directions can differ. Both default to false (behind). Front continuations stay
+inside the device band, below `above-screenshot` elements.
+
 **3D rendering (in three-renderer.js):**
 - Uses Three.js with GLTFLoader for iPhone 15 Pro Max model
 - `initThreeJS()` - initializes scene, camera, renderer, and lights
