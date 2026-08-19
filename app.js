@@ -6896,6 +6896,18 @@ function updateCanvas() {
     updateSidePreviews();
 }
 
+// Gap in preview pixels between two adjacent slides. Linked slides sit flush so
+// the seam can be judged while editing; everything else keeps the 10px gutter.
+const PREVIEW_GAP = 10;
+
+function continuationGap(leftIndex, rightIndex) {
+    const left = state.screenshots[leftIndex];
+    const right = state.screenshots[rightIndex];
+    if (!left || !right) return PREVIEW_GAP;
+    if (left.continueFromNext || right.continueFromPrev) return 0;
+    return PREVIEW_GAP;
+}
+
 function updateSidePreviews() {
     const dims = getCanvasDimensions();
     // Same scale as main preview
@@ -6921,17 +6933,24 @@ function updateSidePreviews() {
         }
     }
 
-    // Calculate main canvas display width and position side previews with 10px gap
+    // Calculate main canvas display width and position side previews, closing the
+    // gutter where a continuation joins two slides
     const mainCanvasWidth = dims.width * previewScale;
-    const gap = 10;
-    const sideOffset = mainCanvasWidth / 2 + gap;
-    const farSideOffset = sideOffset + mainCanvasWidth + gap;
+    const selected = state.selectedIndex;
+    const leftGap = continuationGap(selected - 1, selected);
+    const rightGap = continuationGap(selected, selected + 1);
+    const farLeftGap = continuationGap(selected - 2, selected - 1);
+    const farRightGap = continuationGap(selected + 1, selected + 2);
+    const leftOffset = mainCanvasWidth / 2 + leftGap;
+    const rightOffset = mainCanvasWidth / 2 + rightGap;
+    const farLeftOffset = leftOffset + mainCanvasWidth + farLeftGap;
+    const farRightOffset = rightOffset + mainCanvasWidth + farRightGap;
 
     // Previous screenshot (left, index - 1)
     const prevIndex = state.selectedIndex - 1;
     if (prevIndex >= 0 && state.screenshots.length > 1) {
         sidePreviewLeft.classList.remove('hidden');
-        sidePreviewLeft.style.right = `calc(50% + ${sideOffset}px)`;
+        sidePreviewLeft.style.right = `calc(50% + ${leftOffset}px)`;
         // Skip render if already pre-rendered during slide transition
         if (!skipSidePreviewRender) {
             renderScreenshotToCanvas(prevIndex, canvasLeft, ctxLeft, dims, previewScale);
@@ -6949,7 +6968,7 @@ function updateSidePreviews() {
     const farPrevIndex = state.selectedIndex - 2;
     if (farPrevIndex >= 0 && state.screenshots.length > 2) {
         sidePreviewFarLeft.classList.remove('hidden');
-        sidePreviewFarLeft.style.right = `calc(50% + ${farSideOffset}px)`;
+        sidePreviewFarLeft.style.right = `calc(50% + ${farLeftOffset}px)`;
         renderScreenshotToCanvas(farPrevIndex, canvasFarLeft, ctxFarLeft, dims, previewScale);
     } else {
         sidePreviewFarLeft.classList.add('hidden');
@@ -6959,7 +6978,7 @@ function updateSidePreviews() {
     const nextIndex = state.selectedIndex + 1;
     if (nextIndex < state.screenshots.length && state.screenshots.length > 1) {
         sidePreviewRight.classList.remove('hidden');
-        sidePreviewRight.style.left = `calc(50% + ${sideOffset}px)`;
+        sidePreviewRight.style.left = `calc(50% + ${rightOffset}px)`;
         // Skip render if already pre-rendered during slide transition
         if (!skipSidePreviewRender) {
             renderScreenshotToCanvas(nextIndex, canvasRight, ctxRight, dims, previewScale);
@@ -6977,7 +6996,7 @@ function updateSidePreviews() {
     const farNextIndex = state.selectedIndex + 2;
     if (farNextIndex < state.screenshots.length && state.screenshots.length > 2) {
         sidePreviewFarRight.classList.remove('hidden');
-        sidePreviewFarRight.style.left = `calc(50% + ${farSideOffset}px)`;
+        sidePreviewFarRight.style.left = `calc(50% + ${farRightOffset}px)`;
         renderScreenshotToCanvas(farNextIndex, canvasFarRight, ctxFarRight, dims, previewScale);
     } else {
         sidePreviewFarRight.classList.add('hidden');
@@ -6992,7 +7011,12 @@ function slideToScreenshot(newIndex, direction) {
     const maxPreviewWidth = 400;
     const maxPreviewHeight = 700;
     const previewScale = Math.min(maxPreviewWidth / dims.width, maxPreviewHeight / dims.height);
-    const slideDistance = dims.width * previewScale + 10; // canvas width + gap
+    // Travel the same distance the target preview is actually offset by, so a
+    // closed gutter does not desync the animation
+    const gap = direction === 'right'
+        ? continuationGap(state.selectedIndex, newIndex)
+        : continuationGap(newIndex, state.selectedIndex);
+    const slideDistance = dims.width * previewScale + gap;
 
     const newPrevIndex = newIndex - 1;
     const newNextIndex = newIndex + 1;
