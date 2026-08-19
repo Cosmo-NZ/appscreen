@@ -31,12 +31,16 @@ const deviceConfigs = {
     iphone: {
         modelPath: 'models/iphone-15-pro-max.glb',
         aspectRatio: 1290 / 2796,
-        // Do not raise this to close the thin white rim around the screen: the
-        // overlay grows from its centre, and because the screen is ~2.4x taller
-        // than wide the vertical overshoot eats the top and bottom bezels well
-        // before the rim closes. A real fix needs per-axis size AND offset
-        // calibration against the model's aperture, not a uniform scale.
-        screenHeightFactor: 0.826,
+        // Screen overlay size, per axis, calibrated against the model's actual
+        // screen aperture. The two axes need corrections in OPPOSITE directions
+        // - at the old uniform sizing the overlay overshot the bezel by ~10px
+        // top and bottom while leaving a ~2px rim of the model's light screen
+        // showing left and right - so width cannot be derived from height via
+        // aspectRatio. Method: render with the overlay hidden to find where the
+        // aperture starts on each edge, render again to find the overlay edge,
+        // and solve. See screenPlaneSize().
+        screenHeightFactor: 0.8206,
+        screenWidthFactor: 0.3820,
         screenOffset: { x: 0.027, y: 0.745, z: 0.098 },
         positionOffsetFactor: 0.81,
         cornerRadiusFactor: 0.16,
@@ -46,6 +50,10 @@ const deviceConfigs = {
         modelPath: 'models/samsung-galaxy-s25-ultra.glb',
         aspectRatio: 1440 / 3120,
         screenHeightFactor: 0.66,
+        // Written as the expression rather than a rounded decimal so it is
+        // bit-identical to the previous aspectRatio-derived width. Samsung
+        // measures no rim, so it is deliberately not recalibrated here.
+        screenWidthFactor: 0.66 * (1440 / 3120),
         screenOffset: { x: 0, y: 0.0, z: 0.08},  // Will need adjustment
         positionOffsetFactor: 0.5,
         cornerRadiusFactor: 0.04,
@@ -91,6 +99,17 @@ var frameColorPresets = {
           materials: { back_glass: '#2a2a2a', frame: '#484848', antenna: '#353535' } },
     ]
 };
+
+// Screen overlay dimensions in model-local units. Single source of truth: this
+// geometry is built in two places (the live model and the side-preview cache)
+// and they must not drift apart.
+function screenPlaneSize(config) {
+    const height = 4.3 * config.screenHeightFactor;
+    const width = config.screenWidthFactor !== undefined
+        ? 4.3 * config.screenWidthFactor
+        : height * config.aspectRatio;   // legacy fallback
+    return { width, height };
+}
 
 // Store original material colors for the current model
 let originalMaterialColors = {};
@@ -510,11 +529,8 @@ function loadCachedPhoneModel(deviceType) {
                 pivot.add(model);
 
                 // Create screen plane for this model
-                const aspectRatio = config.aspectRatio;
-                const planeHeight = 4.3 * config.screenHeightFactor;
-                const planeWidth = planeHeight * aspectRatio;
-
-                const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+                const planeSize = screenPlaneSize(config);
+                const geometry = new THREE.PlaneGeometry(planeSize.width, planeSize.height);
                 const material = new THREE.MeshBasicMaterial({
                     color: 0x111111,
                     side: THREE.DoubleSide
@@ -575,9 +591,8 @@ function createScreenOverlay() {
     const config = deviceConfigs[currentDeviceModel] || deviceConfigs.iphone;
 
     // Use device-specific aspect ratio and screen size
-    const aspectRatio = config.aspectRatio;
-    const planeHeight = 4.3 * config.screenHeightFactor;
-    const planeWidth = planeHeight * aspectRatio;
+    const planeSize = screenPlaneSize(config);
+    const planeWidth = planeSize.width, planeHeight = planeSize.height;
 
     const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const material = new THREE.MeshBasicMaterial({
