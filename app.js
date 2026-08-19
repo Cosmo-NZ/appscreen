@@ -1518,6 +1518,8 @@ function saveState() {
                 image: undefined // Don't serialize Image objects
             })),
             popouts: s.popouts || [],
+            continueFromPrev: s.continueFromPrev || false,
+            continueFromNext: s.continueFromNext || false,
             overrides: s.overrides
         };
     });
@@ -1668,6 +1670,8 @@ function loadState() {
                                     text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                     elements: reconstructElementImages(s.elements),
                                     popouts: s.popouts || [],
+                                    continueFromPrev: s.continueFromPrev || false,
+                                    continueFromNext: s.continueFromNext || false,
                                     overrides: s.overrides || {}
                                 };
                                 loadedCount++;
@@ -1707,6 +1711,8 @@ function loadState() {
                                                     text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                                     elements: reconstructElementImages(s.elements),
                                                     popouts: s.popouts || [],
+                                                    continueFromPrev: s.continueFromPrev || false,
+                                                    continueFromNext: s.continueFromNext || false,
                                                     overrides: s.overrides || {}
                                                 };
                                                 loadedCount++;
@@ -1752,6 +1758,8 @@ function loadState() {
                                         text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                         elements: reconstructElementImages(s.elements),
                                         popouts: s.popouts || [],
+                                        continueFromPrev: s.continueFromPrev || false,
+                                        continueFromNext: s.continueFromNext || false,
                                         overrides: s.overrides || {}
                                     };
                                     loadedCount++;
@@ -2045,7 +2053,9 @@ function duplicateScreenshot(index) {
         background: original.background,
         screenshot: original.screenshot,
         text: original.text,
-        overrides: original.overrides
+        overrides: original.overrides,
+        continueFromPrev: original.continueFromPrev || false,
+        continueFromNext: original.continueFromNext || false
     }));
 
     // Background image is not JSON serializable - carry the Image object over
@@ -6225,6 +6235,8 @@ function createNewScreenshot(img, src, name, lang, deviceType) {
         text: JSON.parse(JSON.stringify(textDefaults)),
         elements: JSON.parse(JSON.stringify(state.defaults.elements || [])),
         popouts: [],
+        continueFromPrev: false,
+        continueFromNext: false,
         // Legacy overrides for backwards compatibility
         overrides: {}
     });
