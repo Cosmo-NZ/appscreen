@@ -32,7 +32,12 @@ const deviceConfigs = {
     iphone: {
         modelPath: 'models/iphone-15-pro-max.glb',
         aspectRatio: 1290 / 2796,
-        screenHeightFactor: 0.826,
+        // 0.826 sized the screen overlay fractionally smaller than the model's
+        // own screen surface, which is near-white - so a sub-pixel rim of it
+        // showed around the entire screen perimeter as a thin white outline
+        // (dashed, before MSAA). Calibrated by sweep: the rim disappears at
+        // 1.01x and the dark bezel is measurably unchanged.
+        screenHeightFactor: 0.834,
         screenOffset: { x: 0.027, y: 0.745, z: 0.098 },
         positionOffsetFactor: 0.81,
         cornerRadiusFactor: 0.16,
@@ -151,10 +156,13 @@ function initThreeJS() {
     threeCamera = new THREE.PerspectiveCamera(35, aspect, 0.1, 1000);
     threeCamera.position.set(0, 0, 6);
 
-    // Create renderer - disable antialiasing for faster interactive performance
-    // Quality rendering is done at export time with higher resolution
+    // Create renderer. Antialiasing is ON: the device frame's chamfer catches a
+    // sub-pixel-wide specular highlight, and without MSAA that highlight only
+    // lands on a whole pixel every few rows as the tilted silhouette stair-steps,
+    // producing a dashed white line down the edge of the device in both the
+    // preview and the export. Costs ~11ms per full-res render (10.8 -> 21.8ms).
     threeRenderer = new THREE.WebGLRenderer({
-        antialias: false,  // Disable for better performance
+        antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
         powerPreference: 'high-performance'
@@ -163,7 +171,13 @@ function initThreeJS() {
     // Use device pixel ratio of 1 for fastest interactive rendering
     threeRenderer.setPixelRatio(1);
     threeRenderer.outputEncoding = THREE.sRGBEncoding;
-    threeRenderer.toneMapping = THREE.NoToneMapping;
+    // ACES rather than NoToneMapping: the titanium frame is a metallic material,
+    // so at mirror angles its specular highlight exceeds 1.0 and NoToneMapping
+    // hard-clipped it to pure white along the device silhouette - a hairline that
+    // read as a dashed line once downscaled. Dimming the lights does not fix this
+    // (measured: still clipping at 6/27 tilts even at 0.45x); rolling the
+    // highlights off does, at every tilt, with the lighting design unchanged.
+    threeRenderer.toneMapping = THREE.ACESFilmicToneMapping;
     // Disable automatic clearing - we control this manually
     threeRenderer.autoClear = false;
 
@@ -733,84 +747,8 @@ function animateThreeJS() {
     requestThreeJSRender();
 }
 
-// Render 3D phone only (with transparent background) to be composited
-function renderThreeJSToCanvas(targetCanvas, width, height) {
-    if (!threeRenderer || !threeScene || !threeCamera || !phonePivot) return;
-
-    const dims = { width: width || 1290, height: height || 2796 };
-
-    // Store original values
-    const originalBackground = threeScene.background;
-    const originalPosition = phonePivot.position.clone();
-    const originalScale = phonePivot.scale.clone();
-    const originalRotation = phonePivot.rotation.clone();
-
-    // Apply position, scale, and rotation from screenshot settings
-    if (typeof state !== 'undefined') {
-        // Use getScreenshotSettings() helper if available, otherwise fall back to defaults
-        const ss = typeof getScreenshotSettings === 'function' ? getScreenshotSettings() : state.defaults?.screenshot;
-        if (ss) {
-            // Scale: use screenshot.scale to adjust model size
-            const screenshotScale = ss.scale / 100;
-            phonePivot.scale.setScalar(screenshotScale);
-
-            // Position: match 2D behavior where available space depends on (1 - scale)
-            // This ensures same percentages look the same in 2D and 3D
-            // X uses smaller factor (1.1) since canvas is taller than wide (400x700 aspect)
-            const availableSpaceY = (1 - screenshotScale) * 2;
-            const availableSpaceX = (1 - screenshotScale) * 0.9;
-            const xOffset = ((ss.x - 50) / 50) * availableSpaceX;
-            const yOffset = -((ss.y - 50) / 50) * availableSpaceY; // Inverted for 3D
-            phonePivot.position.set(
-                xOffset + basePositionOffset.x,
-                yOffset + basePositionOffset.y,
-                basePositionOffset.z
-            );
-
-            // Rotation: apply 3D rotation from current screenshot settings + model base rotation
-            const rotation3D = ss.rotation3D || { x: 0, y: 0, z: 0 };
-            const config = deviceConfigs[currentDeviceModel] || deviceConfigs.iphone;
-            const modelRot = config.modelRotation || { x: 0, y: 0, z: 0 };
-            phonePivot.rotation.set(
-                (rotation3D.x + modelRot.x) * Math.PI / 180,
-                (rotation3D.y + modelRot.y) * Math.PI / 180,
-                (rotation3D.z + modelRot.z) * Math.PI / 180
-            );
-        }
-    }
-
-    // Set transparent background for compositing
-    threeScene.background = null;
-    threeRenderer.setClearColor(0x000000, 0); // Fully transparent clear color
-
-    // Temporarily resize renderer
-    const oldSize = { width: 400, height: 700 };
-    threeRenderer.setSize(dims.width, dims.height);
-    threeCamera.aspect = dims.width / dims.height;
-    threeCamera.updateProjectionMatrix();
-
-    // Clear the renderer before drawing (ensures clean transparency)
-    threeRenderer.clear();
-
-    // Render with transparency
-    threeRenderer.render(threeScene, threeCamera);
-
-    // Draw to target canvas (compositing the 3D phone onto existing content)
-    const ctx = targetCanvas.getContext('2d');
-    ctx.drawImage(threeRenderer.domElement, 0, 0, dims.width, dims.height);
-
-    // Restore size, background, and model transforms
-    threeRenderer.setSize(oldSize.width, oldSize.height);
-    threeCamera.aspect = oldSize.width / oldSize.height;
-    threeCamera.updateProjectionMatrix();
-    threeScene.background = originalBackground;
-    phonePivot.position.copy(originalPosition);
-    phonePivot.scale.copy(originalScale);
-    phonePivot.rotation.copy(originalRotation);
-}
-
 // Render 3D for a specific screenshot index (used for side previews)
-function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex) {
+function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex, tileIndex = 0) {
     if (!threeRenderer || !threeScene || !threeCamera) return;
     if (typeof state === 'undefined' || !state.screenshots[screenshotIndex]) return;
 
@@ -923,7 +861,21 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
     // Temporarily resize renderer
     const oldSize = { width: 400, height: 700 };
     threeRenderer.setSize(dims.width, dims.height);
-    threeCamera.aspect = dims.width / dims.height;
+    if (tileIndex === 0) {
+        threeCamera.clearViewOffset();
+        threeCamera.aspect = dims.width / dims.height;
+    } else {
+        // Render one tile of a triple-wide frustum centred on the source slide,
+        // which spans [-W, 2W] in source-canvas coordinates. Offsetting the
+        // frustum rather than moving the phone keeps the perspective identical,
+        // so the two halves match exactly at the seam.
+        threeCamera.aspect = (3 * dims.width) / dims.height;
+        threeCamera.setViewOffset(
+            3 * dims.width, dims.height,
+            (1 + tileIndex) * dims.width, 0,
+            dims.width, dims.height
+        );
+    }
     threeCamera.updateProjectionMatrix();
 
     // Clear the renderer before drawing (ensures clean transparency)
@@ -938,6 +890,7 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
 
     // Restore everything
     threeRenderer.setSize(oldSize.width, oldSize.height);
+    threeCamera.clearViewOffset();
     threeCamera.aspect = oldSize.width / oldSize.height;
     threeCamera.updateProjectionMatrix();
     threeScene.background = originalBackground;

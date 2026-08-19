@@ -1518,6 +1518,10 @@ function saveState() {
                 image: undefined // Don't serialize Image objects
             })),
             popouts: s.popouts || [],
+            continueFromPrev: s.continueFromPrev || false,
+            continueFromNext: s.continueFromNext || false,
+            continuePrevInFront: s.continuePrevInFront || false,
+            continueNextInFront: s.continueNextInFront || false,
             overrides: s.overrides
         };
     });
@@ -1668,6 +1672,10 @@ function loadState() {
                                     text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                     elements: reconstructElementImages(s.elements),
                                     popouts: s.popouts || [],
+                                    continueFromPrev: s.continueFromPrev || false,
+                                    continueFromNext: s.continueFromNext || false,
+                                    continuePrevInFront: s.continuePrevInFront || false,
+                                    continueNextInFront: s.continueNextInFront || false,
                                     overrides: s.overrides || {}
                                 };
                                 loadedCount++;
@@ -1707,6 +1715,10 @@ function loadState() {
                                                     text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                                     elements: reconstructElementImages(s.elements),
                                                     popouts: s.popouts || [],
+                                                    continueFromPrev: s.continueFromPrev || false,
+                                                    continueFromNext: s.continueFromNext || false,
+                                                    continuePrevInFront: s.continuePrevInFront || false,
+                                                    continueNextInFront: s.continueNextInFront || false,
                                                     overrides: s.overrides || {}
                                                 };
                                                 loadedCount++;
@@ -1752,6 +1764,10 @@ function loadState() {
                                         text: s.text || JSON.parse(JSON.stringify(migratedText)),
                                         elements: reconstructElementImages(s.elements),
                                         popouts: s.popouts || [],
+                                        continueFromPrev: s.continueFromPrev || false,
+                                        continueFromNext: s.continueFromNext || false,
+                                        continuePrevInFront: s.continuePrevInFront || false,
+                                        continueNextInFront: s.continueNextInFront || false,
                                         overrides: s.overrides || {}
                                     };
                                     loadedCount++;
@@ -1934,8 +1950,10 @@ function resetStateToDefaults() {
 
 // Switch to a different project
 async function switchProject(projectId) {
-    // Save current project first
-    saveState();
+    // Save current project first, cancelling any queued save - a coalesced write
+    // firing after currentProjectId changes would store this project's screenshots
+    // under the new project's id.
+    flushSaveState();
 
     currentProjectId = projectId;
     saveProjectsMeta();
@@ -2045,7 +2063,32 @@ function duplicateScreenshot(index) {
         background: original.background,
         screenshot: original.screenshot,
         text: original.text,
-        overrides: original.overrides
+        overrides: original.overrides,
+        continueFromPrev: original.continueFromPrev || false,
+        continueFromNext: original.continueFromNext || false,
+        continuePrevInFront: original.continuePrevInFront || false,
+        continueNextInFront: original.continueNextInFront || false
+    }));
+
+    // Background image is not JSON serializable - carry the Image object over
+    if (original.background?.image) {
+        clone.background.image = original.background.image;
+    }
+
+    // Elements: deep copy with fresh ids, reusing the loaded Image objects
+    clone.elements = (original.elements || []).map(el => {
+        const copy = JSON.parse(JSON.stringify({ ...el, image: undefined }));
+        if ((el.type === 'graphic' || el.type === 'icon') && el.image) {
+            copy.image = el.image;
+        }
+        copy.id = crypto.randomUUID();
+        return copy;
+    });
+
+    // Popouts: crop regions still apply, since the copy uses the same source image
+    clone.popouts = (original.popouts || []).map(p => ({
+        ...JSON.parse(JSON.stringify(p)),
+        id: crypto.randomUUID()
     }));
 
     const nameParts = clone.name.split('.');
@@ -2308,6 +2351,33 @@ function syncUIWithState() {
     }
     if (use3D && typeof switchPhoneModel === 'function') {
         switchPhoneModel(device3D);
+    }
+
+    // Continuation toggles - disabled at the ends of the slide list
+    const continuePrev = document.getElementById('continue-prev-toggle');
+    const continueNext = document.getElementById('continue-next-toggle');
+    if (continuePrev && continueNext) {
+        const current = getCurrentScreenshot();
+        const hasPrev = !!current && state.selectedIndex > 0;
+        const hasNext = !!current && state.selectedIndex < state.screenshots.length - 1;
+        continuePrev.classList.toggle('active', !!(current && current.continueFromPrev));
+        continueNext.classList.toggle('active', !!(current && current.continueFromNext));
+        continuePrev.classList.toggle('disabled', !hasPrev);
+        continueNext.classList.toggle('disabled', !hasNext);
+
+        // Behind/In Front selector, shown only while that direction is enabled
+        [
+            { depthId: 'continue-prev-depth', on: hasPrev && current && current.continueFromPrev, key: 'continuePrevInFront' },
+            { depthId: 'continue-next-depth', on: hasNext && current && current.continueFromNext, key: 'continueNextInFront' }
+        ].forEach(entry => {
+            const group = document.getElementById(entry.depthId);
+            if (!group) return;
+            group.style.display = entry.on ? '' : 'none';
+            const wanted = (current && current[entry.key]) ? 'front' : 'behind';
+            group.querySelectorAll('button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.depth === wanted);
+            });
+        });
     }
 
     // Elements
@@ -4706,6 +4776,48 @@ function setupEventListeners() {
         }
         updateCanvas(); // Keep export canvas in sync
     });
+
+    // Continuation toggles
+    [
+        { id: 'continue-prev-toggle', key: 'continueFromPrev', depthId: 'continue-prev-depth' },
+        { id: 'continue-next-toggle', key: 'continueFromNext', depthId: 'continue-next-depth' }
+    ].forEach(entry => {
+        const toggle = document.getElementById(entry.id);
+        if (!toggle) return;
+        toggle.addEventListener('click', function () {
+            if (this.classList.contains('disabled')) return;
+            const screenshot = getCurrentScreenshot();
+            if (!screenshot) return;
+            this.classList.toggle('active');
+            const enabled = this.classList.contains('active');
+            screenshot[entry.key] = enabled;
+            // Reveal/hide this direction's Behind/In Front selector. Done inline
+            // rather than via syncUIWithState, which clears the element and
+            // popout selection as a side effect.
+            const group = document.getElementById(entry.depthId);
+            if (group) group.style.display = enabled ? '' : 'none';
+            updateCanvas();
+        });
+    });
+
+    // Continuation depth (Behind / In Front) selectors
+    [
+        { id: 'continue-prev-depth', key: 'continuePrevInFront' },
+        { id: 'continue-next-depth', key: 'continueNextInFront' }
+    ].forEach(entry => {
+        const group = document.getElementById(entry.id);
+        if (!group) return;
+        group.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const screenshot = getCurrentScreenshot();
+                if (!screenshot) return;
+                group.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                screenshot[entry.key] = btn.dataset.depth === 'front';
+                updateCanvas();
+            });
+        });
+    });
 }
 
 // Per-screenshot mode is now always active (all settings are per-screenshot)
@@ -5384,7 +5496,7 @@ function showTranslateConfirmDialog(providerName) {
 
                 <div style="margin-bottom: 16px;">
                     <label style="display: block; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px;">Source Language</label>
-                    <select id="translate-source-lang" style="width: 100%; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; cursor: pointer;">
+                    <select id="translate-all-source-lang" style="width: 100%; padding: 10px 12px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; cursor: pointer;">
                         ${languageOptions}
                     </select>
                 </div>
@@ -5413,10 +5525,12 @@ function showTranslateConfirmDialog(providerName) {
 
         document.body.appendChild(overlay);
 
-        const select = document.getElementById('translate-source-lang');
-        const countEl = document.getElementById('translate-text-count');
-        const confirmBtn = document.getElementById('translate-confirm');
-        const cancelBtn = document.getElementById('translate-cancel');
+        // Scope lookups to this overlay - the translate modal in index.html has
+        // its own controls, so document-wide getElementById would match those instead
+        const select = overlay.querySelector('#translate-all-source-lang');
+        const countEl = overlay.querySelector('#translate-text-count');
+        const confirmBtn = overlay.querySelector('#translate-confirm');
+        const cancelBtn = overlay.querySelector('#translate-cancel');
 
         // Update count when language changes
         select.addEventListener('change', () => {
@@ -6097,6 +6211,10 @@ async function processDesktopImageFile(fileData) {
             if (ss.use3D && typeof updateScreenTexture === 'function') {
                 updateScreenTexture();
             }
+            // createNewScreenshot may have changed selectedIndex/list length, which
+            // the continuation toggles' active/disabled classes depend on - resync,
+            // matching the "add blank screen" handler's established pattern.
+            syncUIWithState();
             updateCanvas();
             resolve();
         };
@@ -6164,6 +6282,10 @@ async function processImageFile(file) {
                 if (ss.use3D && typeof updateScreenTexture === 'function') {
                     updateScreenTexture();
                 }
+                // createNewScreenshot may have changed selectedIndex/list length, which
+                // the continuation toggles' active/disabled classes depend on - resync,
+                // matching the "add blank screen" handler's established pattern.
+                syncUIWithState();
                 updateCanvas();
                 resolve();
             };
@@ -6202,6 +6324,10 @@ function createNewScreenshot(img, src, name, lang, deviceType) {
         text: JSON.parse(JSON.stringify(textDefaults)),
         elements: JSON.parse(JSON.stringify(state.defaults.elements || [])),
         popouts: [],
+        continueFromPrev: false,
+        continueFromNext: false,
+        continuePrevInFront: false,
+        continueNextInFront: false,
         // Legacy overrides for backwards compatibility
         overrides: {}
     });
@@ -6439,6 +6565,10 @@ function updateScreenshotList() {
                 }
 
                 updateScreenshotList();
+                // Reorder changes which slide sits at selectedIndex, which the
+                // continuation toggles' active/disabled classes depend on - resync,
+                // matching the "add blank screen" handler's established pattern.
+                syncUIWithState();
                 updateCanvas();
             }
         });
@@ -6611,6 +6741,8 @@ function transferStyle(sourceIndex, targetIndex) {
     });
 
     // Explicitly skip popouts — crop regions are specific to each screenshot's source image
+    // Explicitly skip continueFromPrev/continueFromNext — a continuation is a
+    // positional relationship between neighbouring slides, not a style
 
     // Reset transfer mode
     state.transferTarget = null;
@@ -6672,6 +6804,8 @@ function applyStyleToAll() {
         });
 
         // Explicitly skip popouts — crop regions are specific to each screenshot's source image
+        // Explicitly skip continueFromPrev/continueFromNext — a continuation is a
+        // positional relationship between neighbouring slides, not a style
     });
 
     applyStyleSourceIndex = null;
@@ -6798,7 +6932,7 @@ function getCanvasDimensions() {
 }
 
 function updateCanvas() {
-    saveState(); // Persist state on every update
+    scheduleSaveState(); // Persist state, coalesced - see scheduleSaveState()
     const dims = getCanvasDimensions();
     canvas.width = dims.width;
     canvas.height = dims.height;
@@ -6810,49 +6944,105 @@ function updateCanvas() {
     canvas.style.width = (dims.width * scale) + 'px';
     canvas.style.height = (dims.height * scale) + 'px';
 
-    // Draw background
-    drawBackground();
-
-    // Draw noise overlay on background if enabled
-    if (getBackground().noise) {
-        drawNoise();
-    }
-
-    // Elements behind screenshot
-    drawElements(ctx, dims, 'behind-screenshot');
-
-    // Draw screenshot (2D mode) or 3D phone model
-    if (state.screenshots.length > 0) {
-        const screenshot = state.screenshots[state.selectedIndex];
-        const img = screenshot ? getScreenshotImage(screenshot) : null;
-        const ss = getScreenshotSettings();
-        const use3D = ss.use3D || false;
-        if (use3D && img && typeof renderThreeJSToCanvas === 'function' && phoneModelLoaded) {
-            // In 3D mode, update the screen texture and render the phone model
-            if (typeof updateScreenTexture === 'function') {
-                updateScreenTexture();
-            }
-            renderThreeJSToCanvas(canvas, dims.width, dims.height);
-        } else if (!use3D) {
-            // In 2D mode, draw the screenshot normally
-            drawScreenshot();
+    if (state.screenshots.length === 0) {
+        // Empty state: nothing to render, but the preview still shows the
+        // default background (and default text, if a project ever carries any)
+        const bg = getBackground();
+        drawBackgroundToContext(ctx, dims, bg);
+        if (bg.noise) {
+            drawNoiseToContext(ctx, dims, bg.noiseIntensity);
         }
+        drawTextToContext(ctx, dims, getText());
+    } else {
+        renderScreenshotToCanvas(state.selectedIndex, canvas, ctx, dims, scale);
     }
 
-    // Elements above screenshot but behind text
-    drawElements(ctx, dims, 'above-screenshot');
+    // Update side previews. These are four more full-size renders on top of the
+    // main canvas - 4/5 of the work of an updateCanvas - and slider handlers call
+    // updateCanvas on every input event. Coalescing them keeps a drag at one main
+    // canvas per event instead of five, which matters most for 3D and for noise
+    // (a JS loop over every pixel, per canvas).
+    //
+    // The slide transition pre-renders the side canvases itself and sets
+    // skipSidePreviewRender for exactly one synchronous call, so that path must
+    // not be deferred - by the time a timer fired the flag would be back to false
+    // and the previews would re-render, reintroducing the flicker it prevents.
+    if (skipSidePreviewRender) {
+        updateSidePreviews();
+    } else {
+        scheduleSidePreviews();
+    }
+}
 
-    // Draw popouts (cropped regions from source image)
-    drawPopouts(ctx, dims);
+// Coalesce persistence. saveState serialises every screenshot, including its
+// base64 image data - measured at 16ms for a 5-slide project - and updateCanvas
+// runs on every slider input event, so an uncoalesced drag re-serialised and
+// rewrote the whole project ~60 times a second. Deferring the write by a fraction
+// of a second is invisible to the user and costs nothing on the interactive path.
+//
+// Anything that depends on the write having landed must call flushSaveState()
+// first; switching project is the important one, since a timer firing after
+// currentProjectId changed would write the wrong project's data.
+let saveStateTimer = null;
+const SAVE_STATE_COALESCE_MS = 250;
 
-    // Draw text
-    drawText();
+function scheduleSaveState() {
+    if (saveStateTimer !== null) return; // already queued - the queued run persists latest state
+    saveStateTimer = setTimeout(() => {
+        saveStateTimer = null;
+        saveState();
+    }, SAVE_STATE_COALESCE_MS);
+}
 
-    // Elements above text
-    drawElements(ctx, dims, 'above-text');
+function flushSaveState() {
+    if (saveStateTimer !== null) {
+        clearTimeout(saveStateTimer);
+        saveStateTimer = null;
+    }
+    saveState();
+}
 
-    // Update side previews
+// Don't lose the last few hundred milliseconds of edits if the tab goes away.
+window.addEventListener('beforeunload', () => {
+    if (saveStateTimer !== null) flushSaveState();
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && saveStateTimer !== null) flushSaveState();
+});
+
+// Coalesce side-preview renders. setTimeout rather than requestAnimationFrame:
+// rAF does not fire while the page is hidden, which would strand the previews.
+let sidePreviewTimer = null;
+const SIDE_PREVIEW_COALESCE_MS = 100;
+
+function scheduleSidePreviews() {
+    if (sidePreviewTimer !== null) return; // already queued - the queued run picks up latest state
+    sidePreviewTimer = setTimeout(() => {
+        sidePreviewTimer = null;
+        updateSidePreviews();
+    }, SIDE_PREVIEW_COALESCE_MS);
+}
+
+// Render side previews now, cancelling any queued run. For callers that need the
+// previews correct immediately rather than within the coalescing window.
+function flushSidePreviews() {
+    if (sidePreviewTimer !== null) {
+        clearTimeout(sidePreviewTimer);
+        sidePreviewTimer = null;
+    }
     updateSidePreviews();
+}
+
+// Gap in preview pixels between two adjacent slides. Linked slides sit flush so
+// the seam can be judged while editing; everything else keeps the 10px gutter.
+const PREVIEW_GAP = 10;
+
+function continuationGap(leftIndex, rightIndex) {
+    const left = state.screenshots[leftIndex];
+    const right = state.screenshots[rightIndex];
+    if (!left || !right) return PREVIEW_GAP;
+    if (left.continueFromNext || right.continueFromPrev) return 0;
+    return PREVIEW_GAP;
 }
 
 function updateSidePreviews() {
@@ -6880,17 +7070,24 @@ function updateSidePreviews() {
         }
     }
 
-    // Calculate main canvas display width and position side previews with 10px gap
+    // Calculate main canvas display width and position side previews, closing the
+    // gutter where a continuation joins two slides
     const mainCanvasWidth = dims.width * previewScale;
-    const gap = 10;
-    const sideOffset = mainCanvasWidth / 2 + gap;
-    const farSideOffset = sideOffset + mainCanvasWidth + gap;
+    const selected = state.selectedIndex;
+    const leftGap = continuationGap(selected - 1, selected);
+    const rightGap = continuationGap(selected, selected + 1);
+    const farLeftGap = continuationGap(selected - 2, selected - 1);
+    const farRightGap = continuationGap(selected + 1, selected + 2);
+    const leftOffset = mainCanvasWidth / 2 + leftGap;
+    const rightOffset = mainCanvasWidth / 2 + rightGap;
+    const farLeftOffset = leftOffset + mainCanvasWidth + farLeftGap;
+    const farRightOffset = rightOffset + mainCanvasWidth + farRightGap;
 
     // Previous screenshot (left, index - 1)
     const prevIndex = state.selectedIndex - 1;
     if (prevIndex >= 0 && state.screenshots.length > 1) {
         sidePreviewLeft.classList.remove('hidden');
-        sidePreviewLeft.style.right = `calc(50% + ${sideOffset}px)`;
+        sidePreviewLeft.style.right = `calc(50% + ${leftOffset}px)`;
         // Skip render if already pre-rendered during slide transition
         if (!skipSidePreviewRender) {
             renderScreenshotToCanvas(prevIndex, canvasLeft, ctxLeft, dims, previewScale);
@@ -6908,7 +7105,7 @@ function updateSidePreviews() {
     const farPrevIndex = state.selectedIndex - 2;
     if (farPrevIndex >= 0 && state.screenshots.length > 2) {
         sidePreviewFarLeft.classList.remove('hidden');
-        sidePreviewFarLeft.style.right = `calc(50% + ${farSideOffset}px)`;
+        sidePreviewFarLeft.style.right = `calc(50% + ${farLeftOffset}px)`;
         renderScreenshotToCanvas(farPrevIndex, canvasFarLeft, ctxFarLeft, dims, previewScale);
     } else {
         sidePreviewFarLeft.classList.add('hidden');
@@ -6918,7 +7115,7 @@ function updateSidePreviews() {
     const nextIndex = state.selectedIndex + 1;
     if (nextIndex < state.screenshots.length && state.screenshots.length > 1) {
         sidePreviewRight.classList.remove('hidden');
-        sidePreviewRight.style.left = `calc(50% + ${sideOffset}px)`;
+        sidePreviewRight.style.left = `calc(50% + ${rightOffset}px)`;
         // Skip render if already pre-rendered during slide transition
         if (!skipSidePreviewRender) {
             renderScreenshotToCanvas(nextIndex, canvasRight, ctxRight, dims, previewScale);
@@ -6936,7 +7133,7 @@ function updateSidePreviews() {
     const farNextIndex = state.selectedIndex + 2;
     if (farNextIndex < state.screenshots.length && state.screenshots.length > 2) {
         sidePreviewFarRight.classList.remove('hidden');
-        sidePreviewFarRight.style.left = `calc(50% + ${farSideOffset}px)`;
+        sidePreviewFarRight.style.left = `calc(50% + ${farRightOffset}px)`;
         renderScreenshotToCanvas(farNextIndex, canvasFarRight, ctxFarRight, dims, previewScale);
     } else {
         sidePreviewFarRight.classList.add('hidden');
@@ -6951,7 +7148,12 @@ function slideToScreenshot(newIndex, direction) {
     const maxPreviewWidth = 400;
     const maxPreviewHeight = 700;
     const previewScale = Math.min(maxPreviewWidth / dims.width, maxPreviewHeight / dims.height);
-    const slideDistance = dims.width * previewScale + 10; // canvas width + gap
+    // Travel the same distance the target preview is actually offset by, so a
+    // closed gutter does not desync the animation
+    const gap = direction === 'right'
+        ? continuationGap(state.selectedIndex, newIndex)
+        : continuationGap(newIndex, state.selectedIndex);
+    const slideDistance = dims.width * previewScale + gap;
 
     const newPrevIndex = newIndex - 1;
     const newNextIndex = newIndex + 1;
@@ -7072,6 +7274,9 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
     // Elements behind screenshot
     drawElementsToContext(targetCtx, dims, elements, 'behind-screenshot');
 
+    // Neighbour devices set to sit behind this slide's own device
+    drawContinuationDevices(targetCtx, dims, index, 'behind');
+
     // Draw screenshot - 3D if active for this screenshot, otherwise 2D
     const settings = screenshot.screenshot;
     const use3D = settings.use3D || false;
@@ -7086,6 +7291,10 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
         }
     }
 
+    // Neighbour devices set to sit in front of this slide's own device. Still
+    // within the device band, so above-screenshot elements remain on top.
+    drawContinuationDevices(targetCtx, dims, index, 'front');
+
     // Elements above screenshot
     drawElementsToContext(targetCtx, dims, elements, 'above-screenshot');
 
@@ -7093,7 +7302,12 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
     const popouts = screenshot.popouts || [];
     drawPopoutsToContext(targetCtx, dims, popouts, img, settings);
 
-    // Draw text
+    // Draw text. getText() normalised the screenshot's text settings as a side
+    // effect and the old drawText() path relied on it; renderScreenshotToCanvas
+    // is now the only render path, so it must do the same. Without this a
+    // legacy or partial text record renders differently here than in the
+    // preview, and a missing subheadlineColor throws out of hexToRgba.
+    screenshot.text = normalizeTextSettings(screenshot.text);
     const txt = screenshot.text;
     drawTextToContext(targetCtx, dims, txt);
 
@@ -7170,10 +7384,11 @@ function drawBackgroundToContext(context, dims, bg) {
 function drawNoiseToContext(context, dims, intensity) {
     const imageData = context.getImageData(0, 0, dims.width, dims.height);
     const data = imageData.data;
-    const noiseAmount = intensity / 100;
+    // Matches the amplitude the main canvas and export have always used
+    const noiseAmount = intensity / 100 * 50;
 
     for (let i = 0; i < data.length; i += 4) {
-        const noise = (Math.random() - 0.5) * 255 * noiseAmount;
+        const noise = (Math.random() - 0.5) * noiseAmount;
         data[i] = Math.max(0, Math.min(255, data[i] + noise));
         data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
         data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
@@ -7182,8 +7397,13 @@ function drawNoiseToContext(context, dims, intensity) {
     context.putImageData(imageData, 0, 0);
 }
 
-function drawScreenshotToContext(context, dims, img, settings) {
+function drawScreenshotToContext(context, dims, img, settings, offsetX = 0) {
     if (!img) return;
+
+    context.save();
+    if (offsetX !== 0) {
+        context.translate(offsetX, 0);
+    }
 
     const scale = settings.scale / 100;
     let imgWidth = dims.width * scale;
@@ -7224,8 +7444,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
 
     // Draw shadow first (needs a filled shape, not clipped)
     if (settings.shadow && settings.shadow.enabled) {
-        const shadowOpacity = settings.shadow.opacity / 100;
-        const shadowColor = settings.shadow.color + Math.round(shadowOpacity * 255).toString(16).padStart(2, '0');
+        const shadowColor = hexToRgba(settings.shadow.color, settings.shadow.opacity / 100);
         context.shadowColor = shadowColor;
         context.shadowBlur = settings.shadow.blur;
         context.shadowOffsetX = settings.shadow.x;
@@ -7234,7 +7453,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
         // Draw filled rounded rect for shadow
         context.fillStyle = '#000';
         context.beginPath();
-        context.roundRect(x, y, imgWidth, imgHeight, radius);
+        roundRect(context, x, y, imgWidth, imgHeight, radius);
         context.fill();
 
         // Reset shadow before drawing image
@@ -7246,7 +7465,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
 
     // Clip and draw image
     context.beginPath();
-    context.roundRect(x, y, imgWidth, imgHeight, radius);
+    roundRect(context, x, y, imgWidth, imgHeight, radius);
     context.clip();
     context.drawImage(img, x, y, imgWidth, imgHeight);
 
@@ -7266,6 +7485,8 @@ function drawScreenshotToContext(context, dims, img, settings) {
         drawDeviceFrameToContext(context, x, y, imgWidth, imgHeight, settings);
         context.restore();
     }
+
+    context.restore();
 }
 
 function drawDeviceFrameToContext(context, x, y, width, height, settings) {
@@ -7278,7 +7499,7 @@ function drawDeviceFrameToContext(context, x, y, width, height, settings) {
     context.strokeStyle = frameColor;
     context.lineWidth = frameWidth;
     context.beginPath();
-    context.roundRect(x - frameWidth / 2, y - frameWidth / 2, width + frameWidth, height + frameWidth, radius);
+    roundRect(context, x - frameWidth / 2, y - frameWidth / 2, width + frameWidth, height + frameWidth, radius);
     context.stroke();
     context.globalAlpha = 1;
 }
@@ -7411,6 +7632,44 @@ function drawTextToContext(context, dims, txt) {
             context.textBaseline = 'bottom';
         }
     }
+}
+
+// ===== Continuation rendering =====
+// A slide can render an adjacent slide's device translated by exactly one canvas
+// width, so a device bleeding off one slide appears to continue onto this one.
+// Everything is derived from the neighbour at render time - nothing is stored.
+// `band` is 'behind' or 'front' - which side of this slide's own device to draw
+// on. Each direction chooses independently, so a slide with both neighbours
+// continuing can put one in front and the other behind.
+function drawContinuationDevices(context, dims, index, band) {
+    const screenshot = state.screenshots[index];
+    if (!screenshot) return;
+
+    const links = [
+        { enabled: screenshot.continueFromPrev, inFront: screenshot.continuePrevInFront,
+          source: index - 1, offsetX: -dims.width, tile: 1 },
+        { enabled: screenshot.continueFromNext, inFront: screenshot.continueNextInFront,
+          source: index + 1, offsetX: dims.width, tile: -1 }
+    ];
+
+    links.forEach(link => {
+        if (!link.enabled) return;
+        if ((link.inFront ? 'front' : 'behind') !== band) return;
+        const source = state.screenshots[link.source];
+        if (!source) return;
+
+        const img = getScreenshotImage(source);
+        if (!img) return;
+
+        const settings = source.screenshot;
+        if (settings.use3D) {
+            if (typeof renderThreeJSForScreenshot === 'function' && phoneModelLoaded) {
+                renderThreeJSForScreenshot(context.canvas, dims.width, dims.height, link.source, link.tile);
+            }
+        } else {
+            drawScreenshotToContext(context, dims, img, settings, link.offsetX);
+        }
+    });
 }
 
 // Draw elements for the current screenshot at a specific layer
@@ -7688,340 +7947,6 @@ function drawStar(context, cx, cy, size, color) {
     context.closePath();
     context.fill();
     context.restore();
-}
-
-function drawBackground() {
-    const dims = getCanvasDimensions();
-    const bg = getBackground();
-
-    if (bg.type === 'gradient') {
-        const angle = bg.gradient.angle * Math.PI / 180;
-        const x1 = dims.width / 2 - Math.cos(angle) * dims.width;
-        const y1 = dims.height / 2 - Math.sin(angle) * dims.height;
-        const x2 = dims.width / 2 + Math.cos(angle) * dims.width;
-        const y2 = dims.height / 2 + Math.sin(angle) * dims.height;
-
-        const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
-        bg.gradient.stops.forEach(stop => {
-            gradient.addColorStop(stop.position / 100, stop.color);
-        });
-
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, dims.width, dims.height);
-    } else if (bg.type === 'solid') {
-        ctx.fillStyle = bg.solid;
-        ctx.fillRect(0, 0, dims.width, dims.height);
-    } else if (bg.type === 'image' && bg.image) {
-        const img = bg.image;
-        let sx = 0, sy = 0, sw = img.width, sh = img.height;
-        let dx = 0, dy = 0, dw = dims.width, dh = dims.height;
-
-        if (bg.imageFit === 'cover') {
-            const imgRatio = img.width / img.height;
-            const canvasRatio = dims.width / dims.height;
-
-            if (imgRatio > canvasRatio) {
-                sw = img.height * canvasRatio;
-                sx = (img.width - sw) / 2;
-            } else {
-                sh = img.width / canvasRatio;
-                sy = (img.height - sh) / 2;
-            }
-        } else if (bg.imageFit === 'contain') {
-            const imgRatio = img.width / img.height;
-            const canvasRatio = dims.width / dims.height;
-
-            if (imgRatio > canvasRatio) {
-                dh = dims.width / imgRatio;
-                dy = (dims.height - dh) / 2;
-            } else {
-                dw = dims.height * imgRatio;
-                dx = (dims.width - dw) / 2;
-            }
-
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, dims.width, dims.height);
-        }
-
-        if (bg.imageBlur > 0) {
-            ctx.filter = `blur(${bg.imageBlur}px)`;
-        }
-
-        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
-        ctx.filter = 'none';
-
-        // Overlay
-        if (bg.overlayOpacity > 0) {
-            ctx.fillStyle = bg.overlayColor;
-            ctx.globalAlpha = bg.overlayOpacity / 100;
-            ctx.fillRect(0, 0, dims.width, dims.height);
-            ctx.globalAlpha = 1;
-        }
-    }
-}
-
-function drawScreenshot() {
-    const dims = getCanvasDimensions();
-    const screenshot = state.screenshots[state.selectedIndex];
-    if (!screenshot) return;
-
-    // Use localized image based on current language
-    const img = getScreenshotImage(screenshot);
-    if (!img) return;
-
-    const settings = getScreenshotSettings();
-    const scale = settings.scale / 100;
-
-    // Calculate scaled dimensions
-    let imgWidth = dims.width * scale;
-    let imgHeight = (img.height / img.width) * imgWidth;
-
-    // If image is taller than canvas after scaling, adjust
-    if (imgHeight > dims.height * scale) {
-        imgHeight = dims.height * scale;
-        imgWidth = (img.width / img.height) * imgHeight;
-    }
-
-    // Ensure minimum movement range so position works even at 100% scale
-    const moveX = Math.max(dims.width - imgWidth, dims.width * 0.15);
-    const moveY = Math.max(dims.height - imgHeight, dims.height * 0.15);
-    const x = (dims.width - imgWidth) / 2 + (settings.x / 100 - 0.5) * moveX;
-    const y = (dims.height - imgHeight) / 2 + (settings.y / 100 - 0.5) * moveY;
-
-    // Center point for transformations
-    const centerX = x + imgWidth / 2;
-    const centerY = y + imgHeight / 2;
-
-    ctx.save();
-
-    // Apply transformations
-    ctx.translate(centerX, centerY);
-
-    // Apply rotation
-    if (settings.rotation !== 0) {
-        ctx.rotate(settings.rotation * Math.PI / 180);
-    }
-
-    // Apply perspective (simulated with scale transform)
-    if (settings.perspective !== 0) {
-        const perspectiveScale = 1 - Math.abs(settings.perspective) * 0.005;
-        ctx.transform(1, settings.perspective * 0.01, 0, 1, 0, 0);
-    }
-
-    ctx.translate(-centerX, -centerY);
-
-    // Draw rounded rectangle with screenshot
-    const radius = settings.cornerRadius * (imgWidth / 400); // Scale radius with image
-
-    // Draw shadow first (needs a filled shape, not clipped)
-    if (settings.shadow.enabled) {
-        const shadowColor = hexToRgba(settings.shadow.color, settings.shadow.opacity / 100);
-        ctx.shadowColor = shadowColor;
-        ctx.shadowBlur = settings.shadow.blur;
-        ctx.shadowOffsetX = settings.shadow.x;
-        ctx.shadowOffsetY = settings.shadow.y;
-
-        // Draw filled rounded rect for shadow
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        roundRect(ctx, x, y, imgWidth, imgHeight, radius);
-        ctx.fill();
-
-        // Reset shadow before drawing image
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-    }
-
-    // Clip and draw image
-    ctx.beginPath();
-    roundRect(ctx, x, y, imgWidth, imgHeight, radius);
-    ctx.clip();
-    ctx.drawImage(img, x, y, imgWidth, imgHeight);
-
-    ctx.restore();
-
-    // Draw device frame if enabled (needs separate transform context)
-    if (settings.frame.enabled) {
-        ctx.save();
-        ctx.translate(centerX, centerY);
-        if (settings.rotation !== 0) {
-            ctx.rotate(settings.rotation * Math.PI / 180);
-        }
-        if (settings.perspective !== 0) {
-            ctx.transform(1, settings.perspective * 0.01, 0, 1, 0, 0);
-        }
-        ctx.translate(-centerX, -centerY);
-        drawDeviceFrame(x, y, imgWidth, imgHeight);
-        ctx.restore();
-    }
-}
-
-function drawDeviceFrame(x, y, width, height) {
-    const settings = getScreenshotSettings();
-    const frameColor = settings.frame.color;
-    const frameWidth = settings.frame.width * (width / 400); // Scale with image
-    const frameOpacity = settings.frame.opacity / 100;
-    const radius = settings.cornerRadius * (width / 400) + frameWidth;
-
-    ctx.globalAlpha = frameOpacity;
-    ctx.strokeStyle = frameColor;
-    ctx.lineWidth = frameWidth;
-    ctx.beginPath();
-    roundRect(ctx, x - frameWidth / 2, y - frameWidth / 2, width + frameWidth, height + frameWidth, radius);
-    ctx.stroke();
-    ctx.globalAlpha = 1;
-}
-
-function drawText() {
-    const dims = getCanvasDimensions();
-    const text = getTextSettings();
-
-    // Check enabled states (default headline to true for backwards compatibility)
-    const headlineEnabled = text.headlineEnabled !== false;
-    const subheadlineEnabled = text.subheadlineEnabled || false;
-
-    const headlineLang = text.currentHeadlineLang || 'en';
-    const subheadlineLang = text.currentSubheadlineLang || 'en';
-    const layoutLang = getTextLayoutLanguage(text);
-    const headlineLayout = getEffectiveLayout(text, headlineLang);
-    const subheadlineLayout = getEffectiveLayout(text, subheadlineLang);
-    const layoutSettings = getEffectiveLayout(text, layoutLang);
-
-    // Get current language text (only if enabled)
-    const headline = headlineEnabled && text.headlines ? (text.headlines[headlineLang] || '') : '';
-    const subheadline = subheadlineEnabled && text.subheadlines ? (text.subheadlines[subheadlineLang] || '') : '';
-
-    if (!headline && !subheadline) return;
-
-    const padding = dims.width * 0.08;
-    const textY = layoutSettings.position === 'top'
-        ? dims.height * (layoutSettings.offsetY / 100)
-        : dims.height * (1 - layoutSettings.offsetY / 100);
-
-    ctx.textAlign = 'center';
-    ctx.textBaseline = layoutSettings.position === 'top' ? 'top' : 'bottom';
-
-    let currentY = textY;
-
-    // Draw headline
-    if (headline) {
-        const fontStyle = text.headlineItalic ? 'italic' : 'normal';
-        ctx.font = `${fontStyle} ${text.headlineWeight} ${headlineLayout.headlineSize}px ${text.headlineFont}`;
-        ctx.fillStyle = text.headlineColor;
-
-        const lines = wrapText(ctx, headline, dims.width - padding * 2);
-        const lineHeight = headlineLayout.headlineSize * (layoutSettings.lineHeight / 100);
-
-        if (layoutSettings.position === 'bottom') {
-            currentY -= (lines.length - 1) * lineHeight;
-        }
-
-        let lastLineY;
-        lines.forEach((line, i) => {
-            const y = currentY + i * lineHeight;
-            lastLineY = y;
-            ctx.fillText(line, dims.width / 2, y);
-
-            // Calculate text metrics for decorations
-            // When textBaseline is 'top', y is at top of text; when 'bottom', y is at bottom
-            const textWidth = ctx.measureText(line).width;
-            const fontSize = headlineLayout.headlineSize;
-            const lineThickness = Math.max(2, fontSize * 0.05);
-            const x = dims.width / 2 - textWidth / 2;
-
-            // Draw underline
-            if (text.headlineUnderline) {
-                const underlineY = layoutSettings.position === 'top'
-                    ? y + fontSize * 0.9  // Below text when baseline is top
-                    : y + fontSize * 0.1; // Below text when baseline is bottom
-                ctx.fillRect(x, underlineY, textWidth, lineThickness);
-            }
-
-            // Draw strikethrough
-            if (text.headlineStrikethrough) {
-                const strikeY = layoutSettings.position === 'top'
-                    ? y + fontSize * 0.4  // Middle of text when baseline is top
-                    : y - fontSize * 0.4; // Middle of text when baseline is bottom
-                ctx.fillRect(x, strikeY, textWidth, lineThickness);
-            }
-        });
-
-        // Track where subheadline should start (below the bottom edge of headline)
-        // The gap between headline and subheadline should be (lineHeight - fontSize)
-        // This is the "extra" spacing beyond the text itself
-        const gap = lineHeight - headlineLayout.headlineSize;
-        if (layoutSettings.position === 'top') {
-            // For top: lastLineY is top of last line, add fontSize to get bottom, then add gap
-            currentY = lastLineY + headlineLayout.headlineSize + gap;
-        } else {
-            // For bottom: lastLineY is already the bottom of last line, just add gap
-            currentY = lastLineY + gap;
-        }
-    }
-
-    // Draw subheadline (always below headline visually)
-    if (subheadline) {
-        const subFontStyle = text.subheadlineItalic ? 'italic' : 'normal';
-        const subWeight = text.subheadlineWeight || '400';
-        ctx.font = `${subFontStyle} ${subWeight} ${subheadlineLayout.subheadlineSize}px ${text.subheadlineFont || text.headlineFont}`;
-        ctx.fillStyle = hexToRgba(text.subheadlineColor, text.subheadlineOpacity / 100);
-
-        const lines = wrapText(ctx, subheadline, dims.width - padding * 2);
-        const subLineHeight = subheadlineLayout.subheadlineSize * 1.4;
-
-        // Subheadline starts after headline with gap determined by headline lineHeight
-        // For bottom position, switch to 'top' baseline so subheadline draws downward
-        const subY = currentY;
-        if (layoutSettings.position === 'bottom') {
-            ctx.textBaseline = 'top';
-        }
-
-        lines.forEach((line, i) => {
-            const y = subY + i * subLineHeight;
-            ctx.fillText(line, dims.width / 2, y);
-
-            // Calculate text metrics for decorations
-            const textWidth = ctx.measureText(line).width;
-            const fontSize = subheadlineLayout.subheadlineSize;
-            const lineThickness = Math.max(2, fontSize * 0.05);
-            const x = dims.width / 2 - textWidth / 2;
-
-            // Draw underline (using 'top' baseline for subheadline)
-            if (text.subheadlineUnderline) {
-                const underlineY = y + fontSize * 0.9;
-                ctx.fillRect(x, underlineY, textWidth, lineThickness);
-            }
-
-            // Draw strikethrough
-            if (text.subheadlineStrikethrough) {
-                const strikeY = y + fontSize * 0.4;
-                ctx.fillRect(x, strikeY, textWidth, lineThickness);
-            }
-        });
-
-        // Restore baseline if we changed it
-        if (layoutSettings.position === 'bottom') {
-            ctx.textBaseline = 'bottom';
-        }
-    }
-}
-
-function drawNoise() {
-    const dims = getCanvasDimensions();
-    const imageData = ctx.getImageData(0, 0, dims.width, dims.height);
-    const data = imageData.data;
-    const intensity = getBackground().noiseIntensity / 100 * 50;
-
-    for (let i = 0; i < data.length; i += 4) {
-        const noise = (Math.random() - 0.5) * intensity;
-        data[i] = Math.min(255, Math.max(0, data[i] + noise));
-        data[i + 1] = Math.min(255, Math.max(0, data[i + 1] + noise));
-        data[i + 2] = Math.min(255, Math.max(0, data[i + 2] + noise));
-    }
-
-    ctx.putImageData(imageData, 0, 0);
 }
 
 function roundRect(ctx, x, y, width, height, radius) {

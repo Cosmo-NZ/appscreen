@@ -38,7 +38,7 @@ Open `http://localhost:8000` in browser. Opening `index.html` directly from file
 
 - `index.html` - UI structure with modals for settings, about, project management, translations, and language selection
 - `styles.css` - Dark theme styling, responsive layout with CSS Grid (3-column: left sidebar, canvas, right sidebar)
-- `app.js` - All application logic (~4400 lines)
+- `app.js` - All application logic (~8288 lines)
 - `three-renderer.js` - Three.js 3D rendering for iPhone mockups (~1000 lines)
 - `language-utils.js` - Language detection, localized image management, and translation dialogs (~500 lines)
 
@@ -51,18 +51,38 @@ Open `http://localhost:8000` in browser. Opening `index.html` directly from file
 - Project management uses IndexedDB with two stores: `projects` (data) and `meta` (project list)
 - Per-screenshot settings: each screenshot stores its own background, device, and text settings
 
-**Canvas rendering pipeline (in updateCanvas):**
-1. `drawBackground()` - gradient/solid/image with optional blur and overlay
-2. `drawScreenshot()` - positioned, scaled, rotated screenshot with shadow and border
-3. `drawText()` - headline and subheadline with multi-language support
-4. `drawNoise()` - optional noise texture overlay
+**Canvas rendering pipeline:**
+All rendering goes through `renderScreenshotToCanvas(index, canvas, ctx, dims, scale)`,
+used by the main preview, the side previews, and export. `updateCanvas()` delegates
+to it for the selected screenshot and handles the empty-state preview itself.
+
+1. `drawBackgroundToContext()` - gradient/solid/image with optional blur and overlay
+2. `drawNoiseToContext()` - optional noise texture
+3. `drawElementsToContext(..., 'behind-screenshot')`
+4. `drawContinuationDevices()` - adjacent slides' devices bleeding across the seam
+5. `drawScreenshotToContext()` or `renderThreeJSForScreenshot()` - this slide's device
+6. `drawElementsToContext(..., 'above-screenshot')`
+7. `drawPopoutsToContext()`
+8. `drawTextToContext()`
+9. `drawElementsToContext(..., 'above-text')`
+
+**Device continuation:**
+`screenshot.continueFromPrev` / `continueFromNext` make a slide render its
+neighbour's device translated by one canvas width. Fully derived at render time -
+nothing is copied, so slide reordering re-derives automatically. 3D uses
+`camera.setViewOffset` to render an off-axis tile rather than moving the model.
+
+`continuePrevInFront` / `continueNextInFront` choose which side of this slide's
+own device each continuation draws on. `drawContinuationDevices(ctx, dims, index,
+band)` runs twice per render, once per band ('behind' then 'front'), so the two
+directions can differ. Both default to false (behind). Front continuations stay
+inside the device band, below `above-screenshot` elements.
 
 **3D rendering (in three-renderer.js):**
 - Uses Three.js with GLTFLoader for iPhone 15 Pro Max model
 - `initThreeJS()` - initializes scene, camera, renderer, and lights
 - `loadPhoneModel()` - loads the 3D iPhone model from `models/iphone-15-pro-max.glb`
-- `renderThreeJSToCanvas()` - renders 3D scene to export canvas with full resolution
-- `renderThreeJSForScreenshot()` - renders 3D for specific screenshot (side previews)
+- `renderThreeJSForScreenshot()` - renders 3D for specific screenshot with optional tiling for continuation
 - Drag-to-rotate interaction on the 3D preview canvas
 
 **Multi-language text:**

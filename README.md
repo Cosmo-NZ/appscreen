@@ -31,6 +31,7 @@ A free, open-source tool for creating beautiful App Store screenshots with custo
 - **Position Presets**: Centered, bleed, tilt left/right, perspective, and more
 - **Shadow Effects**: Customizable drop shadows with color, blur, opacity, and offset
 - **Border Effects**: Add borders around screenshots with adjustable width and opacity
+- **Continuation**: A device can bleed off one slide and continue onto the next, so a pair of screenshots reads as one continuous scene
 
 ### Text Overlays
 - **Headlines & Subheadlines**: Separate controls with enable/disable toggles
