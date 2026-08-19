@@ -6833,46 +6833,18 @@ function updateCanvas() {
     canvas.style.width = (dims.width * scale) + 'px';
     canvas.style.height = (dims.height * scale) + 'px';
 
-    // Draw background
-    drawBackground();
-
-    // Draw noise overlay on background if enabled
-    if (getBackground().noise) {
-        drawNoise();
-    }
-
-    // Elements behind screenshot
-    drawElements(ctx, dims, 'behind-screenshot');
-
-    // Draw screenshot (2D mode) or 3D phone model
-    if (state.screenshots.length > 0) {
-        const screenshot = state.screenshots[state.selectedIndex];
-        const img = screenshot ? getScreenshotImage(screenshot) : null;
-        const ss = getScreenshotSettings();
-        const use3D = ss.use3D || false;
-        if (use3D && img && typeof renderThreeJSToCanvas === 'function' && phoneModelLoaded) {
-            // In 3D mode, update the screen texture and render the phone model
-            if (typeof updateScreenTexture === 'function') {
-                updateScreenTexture();
-            }
-            renderThreeJSToCanvas(canvas, dims.width, dims.height);
-        } else if (!use3D) {
-            // In 2D mode, draw the screenshot normally
-            drawScreenshot();
+    if (state.screenshots.length === 0) {
+        // Empty state: nothing to render, but the preview still shows the
+        // default background (and default text, if a project ever carries any)
+        const bg = getBackground();
+        drawBackgroundToContext(ctx, dims, bg);
+        if (bg.noise) {
+            drawNoiseToContext(ctx, dims, bg.noiseIntensity);
         }
+        drawTextToContext(ctx, dims, getText());
+    } else {
+        renderScreenshotToCanvas(state.selectedIndex, canvas, ctx, dims, scale);
     }
-
-    // Elements above screenshot but behind text
-    drawElements(ctx, dims, 'above-screenshot');
-
-    // Draw popouts (cropped regions from source image)
-    drawPopouts(ctx, dims);
-
-    // Draw text
-    drawText();
-
-    // Elements above text
-    drawElements(ctx, dims, 'above-text');
 
     // Update side previews
     updateSidePreviews();
