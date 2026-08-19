@@ -151,10 +151,13 @@ function initThreeJS() {
     threeCamera = new THREE.PerspectiveCamera(35, aspect, 0.1, 1000);
     threeCamera.position.set(0, 0, 6);
 
-    // Create renderer - disable antialiasing for faster interactive performance
-    // Quality rendering is done at export time with higher resolution
+    // Create renderer. Antialiasing is ON: the device frame's chamfer catches a
+    // sub-pixel-wide specular highlight, and without MSAA that highlight only
+    // lands on a whole pixel every few rows as the tilted silhouette stair-steps,
+    // producing a dashed white line down the edge of the device in both the
+    // preview and the export. Costs ~11ms per full-res render (10.8 -> 21.8ms).
     threeRenderer = new THREE.WebGLRenderer({
-        antialias: false,  // Disable for better performance
+        antialias: true,
         alpha: true,
         preserveDrawingBuffer: true,
         powerPreference: 'high-performance'
