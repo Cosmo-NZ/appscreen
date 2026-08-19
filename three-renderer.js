@@ -42,6 +42,11 @@ const deviceConfigs = {
         screenHeightFactor: 0.8206,
         screenWidthFactor: 0.3820,
         screenOffset: { x: 0.027, y: 0.745, z: 0.098 },
+        // The overlay sat ~1px high, leaving a hairline of the model's screen
+        // along the bottom edge. Calibrated: 0 error top and bottom at scale 95
+        // and 70. Separate from screenOffset because that also positions the
+        // rotation pivot.
+        screenPlaneOffset: { x: 0, y: -0.0007 },
         positionOffsetFactor: 0.81,
         // Calibrated against the aperture's corner radius by the same method as
         // the width/height factors: at 0.16 the texture's rounded corner cut
@@ -112,7 +117,18 @@ function screenPlaneSize(config) {
     const width = config.screenWidthFactor !== undefined
         ? 4.3 * config.screenWidthFactor
         : height * config.aspectRatio;   // legacy fallback
-    return { width, height };
+    // screenOffset doubles as the rotation pivot (the model is translated by its
+    // negation so the pivot sits at the screen centre), so it cannot be nudged to
+    // centre the overlay without also moving the phone. screenPlaneOffset shifts
+    // the plane alone.
+    const nudge = config.screenPlaneOffset || { x: 0, y: 0 };
+    const o = config.screenOffset;
+    return {
+        width, height,
+        x: o.x + (nudge.x || 0),
+        y: o.y + (nudge.y || 0),
+        z: o.z
+    };
 }
 
 // Store original material colors for the current model
@@ -541,7 +557,7 @@ function loadCachedPhoneModel(deviceType) {
                 });
 
                 const screenPlane = new THREE.Mesh(geometry, material);
-                screenPlane.position.set(screenOffset.x, screenOffset.y, screenOffset.z);
+                screenPlane.position.set(planeSize.x, planeSize.y, planeSize.z);
 
                 const modelRot = config.modelRotation || { x: 0, y: 0, z: 0 };
                 screenPlane.rotation.set(
@@ -608,7 +624,7 @@ function createScreenOverlay() {
 
     // Position at center of phone, slightly in front of glass
     const screenOffset = config.screenOffset;
-    customScreenPlane.position.set(screenOffset.x, screenOffset.y, screenOffset.z);
+    customScreenPlane.position.set(planeSize.x, planeSize.y, planeSize.z);
 
     // Counter-rotate the screen to cancel out the model's base rotation
     // This keeps the screen facing forward when the pivot applies the base rotation
