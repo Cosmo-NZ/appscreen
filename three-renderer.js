@@ -43,7 +43,11 @@ const deviceConfigs = {
         screenWidthFactor: 0.3820,
         screenOffset: { x: 0.027, y: 0.745, z: 0.098 },
         positionOffsetFactor: 0.81,
-        cornerRadiusFactor: 0.16,
+        // Calibrated against the aperture's corner radius by the same method as
+        // the width/height factors: at 0.16 the texture's rounded corner cut
+        // inside the aperture, leaving a light crescent of the model's screen
+        // visible in all four corners.
+        cornerRadiusFactor: 0.15,
         modelRotation: { x: 0, y: 0, z: 0 }  // No correction needed
     },
     samsung: {
