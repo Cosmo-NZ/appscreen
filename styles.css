@@ -1899,6 +1899,11 @@ input[type="range"]::-webkit-slider-thumb {
     left: 22px;
 }
 
+.toggle.disabled {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
 /* Divider */
 .divider {
     height: 1px;

@@ -2341,6 +2341,19 @@ function syncUIWithState() {
         switchPhoneModel(device3D);
     }
 
+    // Continuation toggles - disabled at the ends of the slide list
+    const continuePrev = document.getElementById('continue-prev-toggle');
+    const continueNext = document.getElementById('continue-next-toggle');
+    if (continuePrev && continueNext) {
+        const current = getCurrentScreenshot();
+        const hasPrev = !!current && state.selectedIndex > 0;
+        const hasNext = !!current && state.selectedIndex < state.screenshots.length - 1;
+        continuePrev.classList.toggle('active', !!(current && current.continueFromPrev));
+        continueNext.classList.toggle('active', !!(current && current.continueFromNext));
+        continuePrev.classList.toggle('disabled', !hasPrev);
+        continueNext.classList.toggle('disabled', !hasNext);
+    }
+
     // Elements
     selectedElementId = null;
     updateElementsList();
@@ -4736,6 +4749,23 @@ function setupEventListeners() {
             setThreeJSRotation(ss.rotation3D.x, ss.rotation3D.y, ss.rotation3D.z);
         }
         updateCanvas(); // Keep export canvas in sync
+    });
+
+    // Continuation toggles
+    [
+        { id: 'continue-prev-toggle', key: 'continueFromPrev' },
+        { id: 'continue-next-toggle', key: 'continueFromNext' }
+    ].forEach(entry => {
+        const toggle = document.getElementById(entry.id);
+        if (!toggle) return;
+        toggle.addEventListener('click', function () {
+            if (this.classList.contains('disabled')) return;
+            const screenshot = getCurrentScreenshot();
+            if (!screenshot) return;
+            this.classList.toggle('active');
+            screenshot[entry.key] = this.classList.contains('active');
+            updateCanvas();
+        });
     });
 }
 
