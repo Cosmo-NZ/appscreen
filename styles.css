@@ -91,41 +91,7 @@ body {
     overflow: hidden;
 }
 
-/* Tauri: Make top area draggable for window movement */
-html.tauri-app {
-    --tauri-titlebar-height: 38px;
-}
-
-html.tauri-app body {
-    padding-top: var(--tauri-titlebar-height);
-    overflow: hidden; /* Prevent body scroll in Tauri */
-}
-
 /* Fixed drag region - added via JS as a real DOM element */
-.tauri-titlebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: var(--tauri-titlebar-height, 38px);
-    z-index: 99999;
-    background: var(--bg-secondary);
-    pointer-events: auto;
-}
-
-/* Adjust heights for Tauri titlebar */
-html.tauri-app .app-container {
-    min-height: calc(100vh - var(--tauri-titlebar-height));
-    max-height: calc(100vh - var(--tauri-titlebar-height));
-}
-
-html.tauri-app .sidebar {
-    max-height: calc(100vh - var(--tauri-titlebar-height));
-}
-
-html.tauri-app .right-sidebar {
-    max-height: calc(100vh - var(--tauri-titlebar-height));
-}
 
 .app-container {
     display: grid;
