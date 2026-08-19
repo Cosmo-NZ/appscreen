@@ -1950,8 +1950,10 @@ function resetStateToDefaults() {
 
 // Switch to a different project
 async function switchProject(projectId) {
-    // Save current project first
-    saveState();
+    // Save current project first, cancelling any queued save - a coalesced write
+    // firing after currentProjectId changes would store this project's screenshots
+    // under the new project's id.
+    flushSaveState();
 
     currentProjectId = projectId;
     saveProjectsMeta();
@@ -6930,7 +6932,7 @@ function getCanvasDimensions() {
 }
 
 function updateCanvas() {
-    saveState(); // Persist state on every update
+    scheduleSaveState(); // Persist state, coalesced - see scheduleSaveState()
     const dims = getCanvasDimensions();
     canvas.width = dims.width;
     canvas.height = dims.height;
@@ -6955,7 +6957,79 @@ function updateCanvas() {
         renderScreenshotToCanvas(state.selectedIndex, canvas, ctx, dims, scale);
     }
 
-    // Update side previews
+    // Update side previews. These are four more full-size renders on top of the
+    // main canvas - 4/5 of the work of an updateCanvas - and slider handlers call
+    // updateCanvas on every input event. Coalescing them keeps a drag at one main
+    // canvas per event instead of five, which matters most for 3D and for noise
+    // (a JS loop over every pixel, per canvas).
+    //
+    // The slide transition pre-renders the side canvases itself and sets
+    // skipSidePreviewRender for exactly one synchronous call, so that path must
+    // not be deferred - by the time a timer fired the flag would be back to false
+    // and the previews would re-render, reintroducing the flicker it prevents.
+    if (skipSidePreviewRender) {
+        updateSidePreviews();
+    } else {
+        scheduleSidePreviews();
+    }
+}
+
+// Coalesce persistence. saveState serialises every screenshot, including its
+// base64 image data - measured at 16ms for a 5-slide project - and updateCanvas
+// runs on every slider input event, so an uncoalesced drag re-serialised and
+// rewrote the whole project ~60 times a second. Deferring the write by a fraction
+// of a second is invisible to the user and costs nothing on the interactive path.
+//
+// Anything that depends on the write having landed must call flushSaveState()
+// first; switching project is the important one, since a timer firing after
+// currentProjectId changed would write the wrong project's data.
+let saveStateTimer = null;
+const SAVE_STATE_COALESCE_MS = 250;
+
+function scheduleSaveState() {
+    if (saveStateTimer !== null) return; // already queued - the queued run persists latest state
+    saveStateTimer = setTimeout(() => {
+        saveStateTimer = null;
+        saveState();
+    }, SAVE_STATE_COALESCE_MS);
+}
+
+function flushSaveState() {
+    if (saveStateTimer !== null) {
+        clearTimeout(saveStateTimer);
+        saveStateTimer = null;
+    }
+    saveState();
+}
+
+// Don't lose the last few hundred milliseconds of edits if the tab goes away.
+window.addEventListener('beforeunload', () => {
+    if (saveStateTimer !== null) flushSaveState();
+});
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden && saveStateTimer !== null) flushSaveState();
+});
+
+// Coalesce side-preview renders. setTimeout rather than requestAnimationFrame:
+// rAF does not fire while the page is hidden, which would strand the previews.
+let sidePreviewTimer = null;
+const SIDE_PREVIEW_COALESCE_MS = 100;
+
+function scheduleSidePreviews() {
+    if (sidePreviewTimer !== null) return; // already queued - the queued run picks up latest state
+    sidePreviewTimer = setTimeout(() => {
+        sidePreviewTimer = null;
+        updateSidePreviews();
+    }, SIDE_PREVIEW_COALESCE_MS);
+}
+
+// Render side previews now, cancelling any queued run. For callers that need the
+// previews correct immediately rather than within the coalescing window.
+function flushSidePreviews() {
+    if (sidePreviewTimer !== null) {
+        clearTimeout(sidePreviewTimer);
+        sidePreviewTimer = null;
+    }
     updateSidePreviews();
 }
 
