@@ -7083,6 +7083,9 @@ function renderScreenshotToCanvas(index, targetCanvas, targetCtx, dims, previewS
     // Elements behind screenshot
     drawElementsToContext(targetCtx, dims, elements, 'behind-screenshot');
 
+    // Neighbour devices bleeding across the shared edge, under this slide's own device
+    drawContinuationDevices(targetCtx, dims, index);
+
     // Draw screenshot - 3D if active for this screenshot, otherwise 2D
     const settings = screenshot.screenshot;
     const use3D = settings.use3D || false;
@@ -7194,8 +7197,13 @@ function drawNoiseToContext(context, dims, intensity) {
     context.putImageData(imageData, 0, 0);
 }
 
-function drawScreenshotToContext(context, dims, img, settings) {
+function drawScreenshotToContext(context, dims, img, settings, offsetX = 0) {
     if (!img) return;
+
+    context.save();
+    if (offsetX !== 0) {
+        context.translate(offsetX, 0);
+    }
 
     const scale = settings.scale / 100;
     let imgWidth = dims.width * scale;
@@ -7277,6 +7285,8 @@ function drawScreenshotToContext(context, dims, img, settings) {
         drawDeviceFrameToContext(context, x, y, imgWidth, imgHeight, settings);
         context.restore();
     }
+
+    context.restore();
 }
 
 function drawDeviceFrameToContext(context, x, y, width, height, settings) {
@@ -7422,6 +7432,38 @@ function drawTextToContext(context, dims, txt) {
             context.textBaseline = 'bottom';
         }
     }
+}
+
+// ===== Continuation rendering =====
+// A slide can render an adjacent slide's device translated by exactly one canvas
+// width, so a device bleeding off one slide appears to continue onto this one.
+// Everything is derived from the neighbour at render time - nothing is stored.
+function drawContinuationDevices(context, dims, index) {
+    const screenshot = state.screenshots[index];
+    if (!screenshot) return;
+
+    const links = [
+        { enabled: screenshot.continueFromPrev, source: index - 1, offsetX: -dims.width, tile: 1 },
+        { enabled: screenshot.continueFromNext, source: index + 1, offsetX: dims.width, tile: -1 }
+    ];
+
+    links.forEach(link => {
+        if (!link.enabled) return;
+        const source = state.screenshots[link.source];
+        if (!source) return;
+
+        const img = getScreenshotImage(source);
+        if (!img) return;
+
+        const settings = source.screenshot;
+        if (settings.use3D) {
+            if (typeof renderThreeJSForScreenshot === 'function' && phoneModelLoaded) {
+                renderThreeJSForScreenshot(context.canvas, dims.width, dims.height, link.source, link.tile);
+            }
+        } else {
+            drawScreenshotToContext(context, dims, img, settings, link.offsetX);
+        }
+    });
 }
 
 // Draw elements for the current screenshot at a specific layer
