@@ -115,6 +115,12 @@
             'blank-screen': (() => {
                 const s = baseScreenshot(null);
                 s.name = 'Blank Screen';
+                // Regression guard for the null-image early-return in drawScreenshot():
+                // text and elements must still draw from this screenshot's own
+                // settings, not fall through to state.defaults, so this fixture
+                // must NOT hash identically to 'empty-project'.
+                s.text.headlines = { en: 'Blank screen headline' };
+                s.elements = [textElement('above-text', 50, 85)];
                 return { screenshots: [s], index: 0 };
             })(),
 
@@ -185,7 +191,18 @@
             selectedIndex: state.selectedIndex,
             outputDevice: state.outputDevice,
             currentLanguage: state.currentLanguage,
-            projectLanguages: state.projectLanguages.slice()
+            projectLanguages: state.projectLanguages.slice(),
+            // getText() replaces state.defaults.text by reference (see app.js
+            // getText()), so a deep snapshot is required here too - otherwise
+            // the 'empty-project' fixture mutates the user's real project
+            // defaults and, since saveState is restored to the real function
+            // before the finally block's updateCanvas() call below, that
+            // mutation gets persisted into IndexedDB.
+            // background.image may hold a live Image object that does not
+            // survive JSON round-tripping, so it is preserved by reference
+            // and reattached on restore rather than deep-cloned.
+            defaults: JSON.parse(JSON.stringify(state.defaults)),
+            defaultsBackgroundImage: state.defaults.background.image
         };
 
         // Never write fixtures into the user's IndexedDB project.
@@ -241,6 +258,11 @@
             state.outputDevice = snapshot.outputDevice;
             state.currentLanguage = snapshot.currentLanguage;
             state.projectLanguages = snapshot.projectLanguages;
+            // Restore defaults BEFORE the updateCanvas() call below, which
+            // runs with the real (non-noop) saveState and would otherwise
+            // persist the harness's mutated defaults into IndexedDB.
+            state.defaults = snapshot.defaults;
+            state.defaults.background.image = snapshot.defaultsBackgroundImage;
             updateScreenshotList();
             syncUIWithState();
             updateCanvas();
