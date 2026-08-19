@@ -734,7 +734,7 @@ function animateThreeJS() {
 }
 
 // Render 3D for a specific screenshot index (used for side previews)
-function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex) {
+function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex, tileIndex = 0) {
     if (!threeRenderer || !threeScene || !threeCamera) return;
     if (typeof state === 'undefined' || !state.screenshots[screenshotIndex]) return;
 
@@ -847,7 +847,21 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
     // Temporarily resize renderer
     const oldSize = { width: 400, height: 700 };
     threeRenderer.setSize(dims.width, dims.height);
-    threeCamera.aspect = dims.width / dims.height;
+    if (tileIndex === 0) {
+        threeCamera.clearViewOffset();
+        threeCamera.aspect = dims.width / dims.height;
+    } else {
+        // Render one tile of a triple-wide frustum centred on the source slide,
+        // which spans [-W, 2W] in source-canvas coordinates. Offsetting the
+        // frustum rather than moving the phone keeps the perspective identical,
+        // so the two halves match exactly at the seam.
+        threeCamera.aspect = (3 * dims.width) / dims.height;
+        threeCamera.setViewOffset(
+            3 * dims.width, dims.height,
+            (1 + tileIndex) * dims.width, 0,
+            dims.width, dims.height
+        );
+    }
     threeCamera.updateProjectionMatrix();
 
     // Clear the renderer before drawing (ensures clean transparency)
@@ -862,6 +876,7 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
 
     // Restore everything
     threeRenderer.setSize(oldSize.width, oldSize.height);
+    threeCamera.clearViewOffset();
     threeCamera.aspect = oldSize.width / oldSize.height;
     threeCamera.updateProjectionMatrix();
     threeScene.background = originalBackground;
