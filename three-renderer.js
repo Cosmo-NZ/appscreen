@@ -7,7 +7,6 @@ let phoneModel = null;
 let phonePivot = null;  // Pivot group for rotation around screen center
 let screenMesh = null;
 let customScreenPlane = null;
-let orbitControls = null;
 let isThreeJSInitialized = false;
 let phoneModelLoaded = false;
 let phoneModelLoading = false;
@@ -199,17 +198,6 @@ function initThreeJS() {
     rimLight.position.set(0, -2, -3);
     threeScene.add(rimLight);
 
-    // Add orbit controls (disabled - we use custom drag handling for better performance)
-    // orbitControls = new THREE.OrbitControls(threeCamera, threeRenderer.domElement);
-    // orbitControls.enableDamping = true;
-    // orbitControls.dampingFactor = 0.05;
-    // orbitControls.enableZoom = false;
-    // orbitControls.enablePan = false;
-    // orbitControls.rotateSpeed = 0.5;
-    // orbitControls.minPolarAngle = Math.PI / 4;
-    // orbitControls.maxPolarAngle = Math.PI * 3 / 4;
-    // orbitControls.minAzimuthAngle = -Math.PI / 3;
-    // orbitControls.maxAzimuthAngle = Math.PI / 3;
 
     isThreeJSInitialized = true;
 

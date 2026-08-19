@@ -376,12 +376,13 @@ function addTextElement() {
 // ===== Lucide SVG loading & caching =====
 const lucideSVGCache = new Map(); // name -> raw SVG text
 
+// Icons come from lucide-svgs.js, bundled locally - no network request, so the
+// icon picker works offline and does not tell a CDN what our users are doing.
+// Kept async: every call site already awaits it.
 async function fetchLucideSVG(name) {
     if (lucideSVGCache.has(name)) return lucideSVGCache.get(name);
-    const url = `https://unpkg.com/lucide-static@latest/icons/${name}.svg`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Failed to fetch icon: ${name}`);
-    const svgText = await resp.text();
+    const svgText = typeof LUCIDE_SVGS !== 'undefined' ? LUCIDE_SVGS[name] : null;
+    if (!svgText) throw new Error(`Unknown icon: ${name}`);
     lucideSVGCache.set(name, svgText);
     return svgText;
 }
@@ -6122,104 +6123,6 @@ function applyPositionPreset(preset) {
 function handleFiles(files) {
     // Process files sequentially to handle duplicates one at a time
     processFilesSequentially(Array.from(files).filter(f => f.type.startsWith('image/')));
-}
-
-// Handle files from desktop app (receives array of {dataUrl, name})
-function handleFilesFromDesktop(filesData) {
-    processDesktopFilesSequentially(filesData);
-}
-
-async function processDesktopFilesSequentially(filesData) {
-    for (const fileData of filesData) {
-        await processDesktopImageFile(fileData);
-    }
-}
-
-// Import screenshots via Tauri native file dialog
-async function importScreenshotsFromTauri() {
-    if (!window.__TAURI__) return;
-    try {
-        const selected = await window.__TAURI__.dialog.open({
-            multiple: true,
-            filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp'] }]
-        });
-        if (!selected) return;
-        const paths = Array.isArray(selected) ? selected : [selected];
-        for (const filePath of paths) {
-            const bytes = await window.__TAURI__.fs.readFile(filePath);
-            const blob = new Blob([bytes]);
-            const dataUrl = await new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve(reader.result);
-                reader.readAsDataURL(blob);
-            });
-            const name = filePath.split(/[\\/]/).pop();
-            await handleFilesFromDesktop([{ dataUrl, name }]);
-        }
-    } catch (err) {
-        console.error('Tauri import error:', err);
-    }
-}
-
-async function processDesktopImageFile(fileData) {
-    return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = async () => {
-            // Detect device type based on aspect ratio
-            const ratio = img.width / img.height;
-            let deviceType = 'iPhone';
-            if (ratio > 0.6) {
-                deviceType = 'iPad';
-            }
-
-            // Detect language from filename
-            const detectedLang = detectLanguageFromFilename(fileData.name);
-
-            // Check if this is a localized version of an existing screenshot
-            const existingIndex = findScreenshotByBaseFilename(fileData.name);
-
-            if (existingIndex !== -1) {
-                // Found a screenshot with matching base filename
-                const existingScreenshot = state.screenshots[existingIndex];
-                const hasExistingLangImage = existingScreenshot.localizedImages?.[detectedLang]?.image;
-
-                if (hasExistingLangImage) {
-                    // There's already an image for this language - show dialog
-                    const choice = await showDuplicateDialog({
-                        existingIndex: existingIndex,
-                        detectedLang: detectedLang,
-                        newImage: img,
-                        newSrc: fileData.dataUrl,
-                        newName: fileData.name
-                    });
-
-                    if (choice === 'replace') {
-                        addLocalizedImage(existingIndex, detectedLang, img, fileData.dataUrl, fileData.name);
-                    } else if (choice === 'create') {
-                        createNewScreenshot(img, fileData.dataUrl, fileData.name, detectedLang, deviceType);
-                    }
-                } else {
-                    // No image for this language yet - just add it silently
-                    addLocalizedImage(existingIndex, detectedLang, img, fileData.dataUrl, fileData.name);
-                }
-            } else {
-                createNewScreenshot(img, fileData.dataUrl, fileData.name, detectedLang, deviceType);
-            }
-
-            // Update 3D texture if in 3D mode
-            const ss = getScreenshotSettings();
-            if (ss.use3D && typeof updateScreenTexture === 'function') {
-                updateScreenTexture();
-            }
-            // createNewScreenshot may have changed selectedIndex/list length, which
-            // the continuation toggles' active/disabled classes depend on - resync,
-            // matching the "add blank screen" handler's established pattern.
-            syncUIWithState();
-            updateCanvas();
-            resolve();
-        };
-        img.src = fileData.dataUrl;
-    });
 }
 
 async function processFilesSequentially(files) {

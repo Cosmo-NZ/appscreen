@@ -17,58 +17,10 @@
 
     <link rel="stylesheet" href="styles.css">
 
-    <!-- Detect Tauri and add class for native styling -->
-    <script>
-        if (window.__TAURI__) {
-            document.documentElement.classList.add('tauri-app');
-            document.addEventListener('DOMContentLoaded', () => {
-                document.body.classList.add('tauri-app');
-                // Add a real DOM element for the draggable title bar
-                const titlebar = document.createElement('div');
-                titlebar.className = 'tauri-titlebar';
-                titlebar.setAttribute('data-tauri-drag-region', '');
-                document.body.insertBefore(titlebar, document.body.firstChild);
-
-                // Listen for menu actions from Tauri backend
-                window.__TAURI__.event.listen('menu-action', (event) => {
-                    switch (event.payload) {
-                        case 'new-project':
-                            createProject();
-                            break;
-                        case 'import-screenshots':
-                            importScreenshotsFromTauri();
-                            break;
-                        case 'export-current':
-                            exportCurrent();
-                            break;
-                        case 'export-all':
-                            exportAll();
-                            break;
-                        case 'settings':
-                            document.getElementById('settings-btn')?.click();
-                            break;
-                    }
-                });
-
-                // Handle external links - open in system browser
-                document.addEventListener('click', (e) => {
-                    const link = e.target.closest('a[target="_blank"]');
-                    if (link) {
-                        e.preventDefault();
-                        window.__TAURI__.opener.openUrl(link.href);
-                    }
-                });
-            });
-        }
-    </script>
-
-    <!-- JSZip for ZIP downloads -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-
-    <!-- Three.js for 3D mockups -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Third-party libraries, vendored locally so the app has no CDN dependency -->
+    <script src="vendor/jszip.min.js"></script>
+    <script src="vendor/three.min.js"></script>
+    <script src="vendor/GLTFLoader.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -1984,6 +1936,7 @@
     <script src="language-utils.js"></script>
     <script src="magical-titles.js"></script>
     <script src="lucide-icons.js"></script>
+    <script src="lucide-svgs.js"></script>
     <script src="three-renderer.js"></script>
     <script src="app.js"></script>
 </body>

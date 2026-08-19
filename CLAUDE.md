@@ -128,7 +128,10 @@ inside the device band, below `above-screenshot` elements.
 
 ## External Dependencies
 
-- **Three.js** (r128) - 3D rendering for device mockups
-- **GLTFLoader** - loads iPhone 3D model
-- **JSZip** - creates ZIP files for batch export
+All third-party libraries are vendored in `vendor/` - the app makes no CDN
+requests. Lucide icon SVGs are bundled in `lucide-svgs.js` rather than fetched.
+
+- **Three.js** (r128) - 3D rendering for device mockups (`vendor/three.min.js`)
+- **GLTFLoader** - loads the 3D device models (`vendor/GLTFLoader.js`)
+- **JSZip** - creates ZIP files for batch export (`vendor/jszip.min.js`)
 - **Google Fonts API** - font picker with 1500+ fonts
