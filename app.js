@@ -7193,10 +7193,11 @@ function drawBackgroundToContext(context, dims, bg) {
 function drawNoiseToContext(context, dims, intensity) {
     const imageData = context.getImageData(0, 0, dims.width, dims.height);
     const data = imageData.data;
-    const noiseAmount = intensity / 100;
+    // Matches the amplitude the main canvas and export have always used
+    const noiseAmount = intensity / 100 * 50;
 
     for (let i = 0; i < data.length; i += 4) {
-        const noise = (Math.random() - 0.5) * 255 * noiseAmount;
+        const noise = (Math.random() - 0.5) * noiseAmount;
         data[i] = Math.max(0, Math.min(255, data[i] + noise));
         data[i + 1] = Math.max(0, Math.min(255, data[i + 1] + noise));
         data[i + 2] = Math.max(0, Math.min(255, data[i + 2] + noise));
@@ -7247,8 +7248,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
 
     // Draw shadow first (needs a filled shape, not clipped)
     if (settings.shadow && settings.shadow.enabled) {
-        const shadowOpacity = settings.shadow.opacity / 100;
-        const shadowColor = settings.shadow.color + Math.round(shadowOpacity * 255).toString(16).padStart(2, '0');
+        const shadowColor = hexToRgba(settings.shadow.color, settings.shadow.opacity / 100);
         context.shadowColor = shadowColor;
         context.shadowBlur = settings.shadow.blur;
         context.shadowOffsetX = settings.shadow.x;
@@ -7257,7 +7257,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
         // Draw filled rounded rect for shadow
         context.fillStyle = '#000';
         context.beginPath();
-        context.roundRect(x, y, imgWidth, imgHeight, radius);
+        roundRect(context, x, y, imgWidth, imgHeight, radius);
         context.fill();
 
         // Reset shadow before drawing image
@@ -7269,7 +7269,7 @@ function drawScreenshotToContext(context, dims, img, settings) {
 
     // Clip and draw image
     context.beginPath();
-    context.roundRect(x, y, imgWidth, imgHeight, radius);
+    roundRect(context, x, y, imgWidth, imgHeight, radius);
     context.clip();
     context.drawImage(img, x, y, imgWidth, imgHeight);
 
@@ -7301,7 +7301,7 @@ function drawDeviceFrameToContext(context, x, y, width, height, settings) {
     context.strokeStyle = frameColor;
     context.lineWidth = frameWidth;
     context.beginPath();
-    context.roundRect(x - frameWidth / 2, y - frameWidth / 2, width + frameWidth, height + frameWidth, radius);
+    roundRect(context, x - frameWidth / 2, y - frameWidth / 2, width + frameWidth, height + frameWidth, radius);
     context.stroke();
     context.globalAlpha = 1;
 }
