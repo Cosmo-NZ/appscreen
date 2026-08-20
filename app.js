@@ -7931,18 +7931,78 @@ async function exportAll() {
     const hasMultipleLanguages = state.projectLanguages.length > 1;
 
     if (hasMultipleLanguages) {
-        // Show language choice dialog
+        // Show language choice dialog. Its buttons are real click handlers, so
+        // the picker opened from here still has a live user gesture.
         showExportLanguageDialog(async (choice) => {
             if (choice === 'current') {
-                await exportAllForLanguage(state.currentLanguage);
+                const target = await pickZipSaveTarget(zipNameForLanguage(state.currentLanguage));
+                if (!target) return;
+                await exportAllForLanguage(state.currentLanguage, target);
             } else if (choice === 'all') {
-                await exportAllLanguages();
+                const target = await pickZipSaveTarget(zipNameForAllLanguages());
+                if (!target) return;
+                await exportAllLanguages(target);
             }
         });
     } else {
         // Only one language, export directly
-        await exportAllForLanguage(state.currentLanguage);
+        const target = await pickZipSaveTarget(zipNameForLanguage(state.currentLanguage));
+        if (!target) return;
+        await exportAllForLanguage(state.currentLanguage, target);
     }
+}
+
+// ===== Choosing where a ZIP export is written =====
+//
+// showSaveFilePicker() only works while the click that started the export
+// still counts as a user gesture, and that transient activation expires after
+// a few seconds - far sooner than the render loop below finishes. So the
+// destination is chosen up front, next to the click, and written to once the
+// ZIP actually exists. Browsers without the File System Access API (Firefox,
+// Safari) fall back to a plain download into the default folder.
+
+function zipNameForLanguage(lang) {
+    return `screenshots_${state.outputDevice}_${lang}.zip`;
+}
+
+function zipNameForAllLanguages() {
+    return `screenshots_${state.outputDevice}_all-languages.zip`;
+}
+
+// Returns a save target, or null if the user cancelled the picker.
+async function pickZipSaveTarget(suggestedName) {
+    if (typeof window.showSaveFilePicker !== 'function') {
+        return { kind: 'download', name: suggestedName };
+    }
+    try {
+        const handle = await window.showSaveFilePicker({
+            suggestedName: suggestedName,
+            types: [{
+                description: 'ZIP archive',
+                accept: { 'application/zip': ['.zip'] }
+            }]
+        });
+        return { kind: 'handle', handle: handle };
+    } catch (err) {
+        if (err && err.name === 'AbortError') return null; // user cancelled
+        // Picker unavailable for some other reason - don't lose the export.
+        console.warn('Save picker failed, falling back to download:', err);
+        return { kind: 'download', name: suggestedName };
+    }
+}
+
+async function writeZipToTarget(target, blob) {
+    if (target.kind === 'handle') {
+        const writable = await target.handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        return;
+    }
+    const link = document.createElement('a');
+    link.download = target.name;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
 }
 
 // Show export progress modal
@@ -7965,7 +8025,8 @@ function hideExportProgress() {
 }
 
 // Export all screenshots for a specific language
-async function exportAllForLanguage(lang) {
+async function exportAllForLanguage(lang, target) {
+    target = target || { kind: 'download', name: zipNameForLanguage(lang) };
     const originalIndex = state.selectedIndex;
     const originalLang = state.currentLanguage;
     const zip = new JSZip();
@@ -8018,19 +8079,23 @@ async function exportAllForLanguage(lang) {
     showExportProgress('Generating ZIP...', '', 95);
     const content = await zip.generateAsync({ type: 'blob' });
 
+    showExportProgress('Saving...', '', 98);
+    try {
+        await writeZipToTarget(target, content);
+    } catch (err) {
+        hideExportProgress();
+        await showAppAlert('Could not save the ZIP file: ' + (err && err.message ? err.message : err), 'error');
+        return;
+    }
+
     showExportProgress('Complete!', '', 100);
     await new Promise(resolve => setTimeout(resolve, 1500));
     hideExportProgress();
-
-    const link = document.createElement('a');
-    link.download = `screenshots_${state.outputDevice}_${lang}.zip`;
-    link.href = URL.createObjectURL(content);
-    link.click();
-    URL.revokeObjectURL(link.href);
 }
 
 // Export all screenshots for all languages (separate folders)
-async function exportAllLanguages() {
+async function exportAllLanguages(target) {
+    target = target || { kind: 'download', name: zipNameForAllLanguages() };
     const originalIndex = state.selectedIndex;
     const originalLang = state.currentLanguage;
     const zip = new JSZip();
@@ -8092,15 +8157,18 @@ async function exportAllLanguages() {
     showExportProgress('Generating ZIP...', '', 95);
     const content = await zip.generateAsync({ type: 'blob' });
 
+    showExportProgress('Saving...', '', 98);
+    try {
+        await writeZipToTarget(target, content);
+    } catch (err) {
+        hideExportProgress();
+        await showAppAlert('Could not save the ZIP file: ' + (err && err.message ? err.message : err), 'error');
+        return;
+    }
+
     showExportProgress('Complete!', '', 100);
     await new Promise(resolve => setTimeout(resolve, 1500));
     hideExportProgress();
-
-    const link = document.createElement('a');
-    link.download = `screenshots_${state.outputDevice}_all-languages.zip`;
-    link.href = URL.createObjectURL(content);
-    link.click();
-    URL.revokeObjectURL(link.href);
 }
 
 // ===== Emoji Picker (inline dropdown) =====
