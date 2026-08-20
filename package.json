@@ -1,17 +1,22 @@
 {
-  "name": "yuzu.shot",
+  "name": "appscreen",
   "version": "1.0.0",
-  "description": "App Store Screenshot Generator - Create beautiful App Store marketing screenshots",
+  "description": "App Store Screenshot Generator - create App Store marketing screenshots in the browser, with 2D and 3D device mockups",
   "author": {
-    "name": "YUZUHub",
-    "email": "hello@yuzuhub.com",
+    "name": "YuzuHub",
     "url": "https://yuzuhub.com"
   },
+  "contributors": [
+    {
+      "name": "Cosmo-NZ",
+      "url": "https://github.com/Cosmo-NZ"
+    }
+  ],
   "license": "MIT",
-  "homepage": "https://yuzu-hub.github.io/appscreen/",
+  "homepage": "https://cosmo-nz.github.io/appscreen/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YUZU-Hub/appscreen"
+    "url": "https://github.com/Cosmo-NZ/appscreen"
   },
   "scripts": {
     "serve": "python3 -m http.server 8000"

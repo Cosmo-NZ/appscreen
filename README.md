@@ -5,6 +5,9 @@ backgrounds, text overlays, and 2D or 3D device mockups. It runs entirely in the
 browser: no build step, no backend, no account, and your screenshots never leave your
 machine.
 
+**[Start using it now →](https://cosmo-nz.github.io/appscreen/)** — hosted on GitHub Pages,
+nothing to install.
+
 ![The editor, with a 3D device continuing across the seam between two slides](img/gen1.png)
 
 <sub>Device continuation in action: the tilted iPhone belongs to the first slide and carries
