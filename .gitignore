@@ -13,12 +13,3 @@ node_modules/
 # Build output
 dist/
 out/
-
-# Tauri
-src-tauri/target/
-frontend-dist/
-*.dmg
-*.exe
-*.AppImage
-*.deb
-*.snap
