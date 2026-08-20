@@ -13,3 +13,6 @@ node_modules/
 # Build output
 dist/
 out/
+
+# Superpowers scratch (task briefs, reviews, diffs)
+/.superpowers/
