@@ -771,7 +771,7 @@ function animateThreeJS() {
 }
 
 // Render 3D for a specific screenshot index (used for side previews)
-function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex, tileIndex = 0) {
+function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex, tileIndex = 0, gutter = 0) {
     if (!threeRenderer || !threeScene || !threeCamera) return;
     if (typeof state === 'undefined' || !state.screenshots[screenshotIndex]) return;
 
@@ -892,10 +892,15 @@ function renderThreeJSForScreenshot(targetCanvas, width, height, screenshotIndex
         // which spans [-W, 2W] in source-canvas coordinates. Offsetting the
         // frustum rather than moving the phone keeps the perspective identical,
         // so the two halves match exactly at the seam.
+        // Shift the sampled tile by the App Store gutter so the 3D device
+        // reconnects across the store's gap, matching the 2D offset. The full
+        // frame width (and therefore the camera aspect) is left unchanged so the
+        // device renders at exactly the same scale as the main slide's device.
+        const seamShift = tileIndex * gutter;
         threeCamera.aspect = (3 * dims.width) / dims.height;
         threeCamera.setViewOffset(
             3 * dims.width, dims.height,
-            (1 + tileIndex) * dims.width, 0,
+            (1 + tileIndex) * dims.width + seamShift, 0,
             dims.width, dims.height
         );
     }

@@ -8,6 +8,10 @@ const state = {
     projectLanguages: ['en'], // Languages available in this project
     customWidth: 1290,
     customHeight: 2796,
+    // Fraction of a screenshot's width taken up by the App Store's gutter between
+    // adjacent screenshots. Continuation devices are shifted by this much so the
+    // two halves reconnect once the store inserts its gap. Tunable per project.
+    seamGap: 0.05,
     // Default settings applied to new screenshots
     defaults: {
         background: {
@@ -1535,6 +1539,7 @@ function saveState() {
         outputDevice: state.outputDevice,
         customWidth: state.customWidth,
         customHeight: state.customHeight,
+        seamGap: state.seamGap,
         currentLanguage: state.currentLanguage,
         projectLanguages: state.projectLanguages,
         defaults: state.defaults
@@ -1802,6 +1807,7 @@ function loadState() {
                     state.outputDevice = parsed.outputDevice || 'iphone-6.9';
                     state.customWidth = parsed.customWidth || 1320;
                     state.customHeight = parsed.customHeight || 2868;
+                    state.seamGap = (parsed.seamGap != null) ? parsed.seamGap : 0.05;
 
                     // Load global language settings
                     state.currentLanguage = parsed.currentLanguage || 'en';
@@ -2379,6 +2385,19 @@ function syncUIWithState() {
                 btn.classList.toggle('active', btn.dataset.depth === wanted);
             });
         });
+
+        // App Store gutter slider, shown only while a continuation is active on
+        // this slide. The value itself is project-wide (state.seamGap).
+        const seamRow = document.getElementById('seam-gap-row');
+        if (seamRow) {
+            const anyContinuation = !!(current && ((hasPrev && current.continueFromPrev) || (hasNext && current.continueFromNext)));
+            seamRow.style.display = anyContinuation ? '' : 'none';
+            const percent = Math.round((state.seamGap || 0) * 1000) / 10;
+            const seamInput = document.getElementById('seam-gap');
+            const seamValue = document.getElementById('seam-gap-value');
+            if (seamInput) seamInput.value = percent;
+            if (seamValue) seamValue.textContent = percent + '%';
+        }
     }
 
     // Elements
@@ -4399,6 +4418,14 @@ function setupEventListeners() {
     document.getElementById('screenshot-scale').addEventListener('input', (e) => {
         setScreenshotSetting('scale', parseInt(e.target.value));
         document.getElementById('screenshot-scale-value').textContent = formatValue(e.target.value) + '%';
+        updateCanvas();
+    });
+
+    // App Store gutter: a project-wide fraction, so it re-renders every slide.
+    document.getElementById('seam-gap').addEventListener('input', (e) => {
+        const percent = parseFloat(e.target.value);
+        state.seamGap = percent / 100;
+        document.getElementById('seam-gap-value').textContent = percent + '%';
         updateCanvas();
     });
 
@@ -6936,15 +6963,22 @@ function flushSidePreviews() {
     updateSidePreviews();
 }
 
-// Gap in preview pixels between two adjacent slides. Linked slides sit flush so
-// the seam can be judged while editing; everything else keeps the 10px gutter.
+// Gap in preview pixels between two adjacent slides. Everything unlinked keeps a
+// fixed 10px gutter; linked slides instead show the App Store gutter (state.seamGap)
+// at preview scale, so the editor previews the seam exactly as the store will draw
+// it - the continuation device is shifted by the same gutter, so the halves meet
+// across this gap.
 const PREVIEW_GAP = 10;
 
 function continuationGap(leftIndex, rightIndex) {
     const left = state.screenshots[leftIndex];
     const right = state.screenshots[rightIndex];
     if (!left || !right) return PREVIEW_GAP;
-    if (left.continueFromNext || right.continueFromPrev) return 0;
+    if (left.continueFromNext || right.continueFromPrev) {
+        const dims = getCanvasDimensions();
+        const previewScale = Math.min(400 / dims.width, 700 / dims.height);
+        return Math.round((state.seamGap || 0) * dims.width * previewScale);
+    }
     return PREVIEW_GAP;
 }
 
@@ -7548,11 +7582,17 @@ function drawContinuationDevices(context, dims, index, band) {
     const screenshot = state.screenshots[index];
     if (!screenshot) return;
 
+    // The App Store draws a gutter between adjacent screenshots. Shifting the
+    // continuation device by that gutter (on top of the one-canvas offset) hides
+    // a thin slice off this slide's edge, so the two halves reconnect once the
+    // store's gap is inserted. gutter === 0 restores the flush, edge-to-edge look.
+    const gutter = Math.round((state.seamGap || 0) * dims.width);
+
     const links = [
         { enabled: screenshot.continueFromPrev, inFront: screenshot.continuePrevInFront,
-          source: index - 1, offsetX: -dims.width, tile: 1 },
+          source: index - 1, offsetX: -(dims.width + gutter), tile: 1 },
         { enabled: screenshot.continueFromNext, inFront: screenshot.continueNextInFront,
-          source: index + 1, offsetX: dims.width, tile: -1 }
+          source: index + 1, offsetX: dims.width + gutter, tile: -1 }
     ];
 
     links.forEach(link => {
@@ -7567,7 +7607,7 @@ function drawContinuationDevices(context, dims, index, band) {
         const settings = source.screenshot;
         if (settings.use3D) {
             if (typeof renderThreeJSForScreenshot === 'function' && phoneModelLoaded) {
-                renderThreeJSForScreenshot(context.canvas, dims.width, dims.height, link.source, link.tile);
+                renderThreeJSForScreenshot(context.canvas, dims.width, dims.height, link.source, link.tile, gutter);
             }
         } else {
             drawScreenshotToContext(context, dims, img, settings, link.offsetX);
