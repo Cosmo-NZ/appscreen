@@ -259,15 +259,11 @@
         <div class="pane-resizer" id="left-pane-resizer" title="Drag to resize · double-click to reset"></div>
 
         <!-- Main Canvas Area -->
-        <div class="canvas-area">
+        <div class="canvas-area" id="canvas-area">
             <div class="preview-strip">
-                <div class="side-preview side-preview-far-left" id="side-preview-far-left">
-                    <canvas id="preview-canvas-far-left"></canvas>
-                </div>
-                <div class="side-preview side-preview-left" id="side-preview-left">
-                    <canvas id="preview-canvas-left"></canvas>
-                </div>
-                <div class="canvas-wrapper" id="canvas-wrapper">
+                <!-- The selected slide's editable wrapper. Static slots for the
+                     other slides are inserted around it by updateSidePreviews(). -->
+                <div class="canvas-wrapper film-slot" id="canvas-wrapper">
                     <canvas id="preview-canvas"></canvas>
                     <div id="threejs-container" style="display: none;"></div>
                     <div class="no-screenshot" id="no-screenshot">
@@ -278,12 +274,6 @@
                         </svg>
                         <p>Upload screenshots to get started</p>
                     </div>
-                </div>
-                <div class="side-preview side-preview-right" id="side-preview-right">
-                    <canvas id="preview-canvas-right"></canvas>
-                </div>
-                <div class="side-preview side-preview-far-right" id="side-preview-far-right">
-                    <canvas id="preview-canvas-far-right"></canvas>
                 </div>
             </div>
         </div>

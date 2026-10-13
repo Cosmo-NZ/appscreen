@@ -866,82 +866,48 @@ input[type="range"]::-webkit-slider-thumb {
     background: rgba(99, 102, 241, 0.1);
 }
 
-/* Canvas area */
+/* Canvas area - a horizontally scrollable filmstrip of all slides */
 .canvas-area {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
+    /* Centre the strip when it fits; fall back to start-aligned (so the first
+       slide stays reachable) once it overflows and must scroll. */
+    justify-content: safe center;
     padding: 40px;
     background: var(--bg-primary);
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* Keep a horizontal two-finger scroll from triggering browser back/forward. */
+    overscroll-behavior-x: contain;
     position: relative;
 }
 
 .preview-strip {
     display: flex;
     align-items: center;
-    justify-content: center;
-    position: relative;
-    width: 100%;
-    transition: transform 0.3s ease-out;
+    width: max-content;
 }
 
-.preview-strip.sliding {
-    pointer-events: none;
-}
-
-.side-preview {
-    position: absolute;
-    top: 50%;
-    transform: translateY(-50%);
-    opacity: 0.6;
-    transition: opacity 0.3s, left 0.3s ease-out, right 0.3s ease-out;
-    cursor: pointer;
+/* Static (non-selected) slide in the filmstrip */
+.film-slide {
+    flex: none;
     border-radius: 8px;
     overflow: hidden;
     box-shadow: 0 25px 80px var(--shadow-heavy);
+    opacity: 0.55;
+    cursor: pointer;
+    transition: opacity 0.2s;
 }
-
-.side-preview-left,
-.side-preview-far-left {
-    direction: rtl;
-}
-
-.side-preview-left canvas,
-.side-preview-far-left canvas {
-    direction: ltr;
-}
-
-.side-preview:hover {
-    opacity: 0.85;
-}
-
-.side-preview.hidden {
-    display: none;
-}
-
-.side-preview canvas {
-    display: block;
-}
+.film-slide:hover { opacity: 0.85; }
+.film-slide canvas { display: block; }
 
 .canvas-wrapper {
     position: relative;
+    flex: none;
     box-shadow: 0 25px 80px var(--shadow-heavy);
     border-radius: 8px;
     overflow: hidden;
     z-index: 1;
-    transition: transform 0.3s ease-out, opacity 0.3s;
-}
-
-.canvas-wrapper.sliding-out-left {
-    transform: translateX(-100%);
-    opacity: 0;
-}
-
-.canvas-wrapper.sliding-out-right {
-    transform: translateX(100%);
-    opacity: 0;
 }
 
 #preview-canvas {
