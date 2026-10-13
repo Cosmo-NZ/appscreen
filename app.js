@@ -7997,12 +7997,24 @@ async function exportAll() {
 // ZIP actually exists. Browsers without the File System Access API (Firefox,
 // Safari) fall back to a plain download into the default folder.
 
+// Current project name, cleaned so it is safe to use as a filename.
+function exportBaseName() {
+    const el = document.getElementById('project-trigger-name');
+    const raw = el && el.textContent ? el.textContent : '';
+    const cleaned = raw.replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim();
+    return cleaned || 'screenshots';
+}
+
 function zipNameForLanguage(lang) {
-    return `screenshots_${state.outputDevice}_${lang}.zip`;
+    const base = exportBaseName();
+    // Only disambiguate by language when the project actually has more than one.
+    return (state.projectLanguages && state.projectLanguages.length > 1)
+        ? `${base}_${lang}.zip`
+        : `${base}.zip`;
 }
 
 function zipNameForAllLanguages() {
-    return `screenshots_${state.outputDevice}_all-languages.zip`;
+    return `${exportBaseName()}_all-languages.zip`;
 }
 
 // Returns a save target, or null if the user cancelled the picker. `accept` is a
@@ -8374,7 +8386,7 @@ async function exportCombined() {
     }
     // Open the save picker first, while the confirm click still counts as a user
     // gesture - the stitch render below can take several seconds.
-    const target = await pickSaveTarget('lineup.png', 'PNG image', { 'image/png': ['.png'] });
+    const target = await pickSaveTarget(exportBaseName() + '.png', 'PNG image', { 'image/png': ['.png'] });
     if (!target) return; // cancelled
 
     const { spacing, scale, fill } = combineOptions();
