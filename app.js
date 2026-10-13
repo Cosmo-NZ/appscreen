@@ -8281,13 +8281,23 @@ async function renderCombinedCanvas(indices, spacingPx, scale, fillColor, onProg
     const realSeam = state.seamGap;
     // Continuation must reconnect across the stitch gap, not the store gutter.
     state.seamGap = W > 0 ? spacingPx / W : 0;
+    // Round each slide's corners to match the workspace (8px on a slide shown at
+    // the workspace preview scale), kept proportional at the chosen output scale.
+    const workspaceScale = Math.min(400 / W, 700 / H);
+    const cornerRadius = Math.max(0, Math.round(8 * scale / workspaceScale));
+    const dw = Math.round(W * scale), dh = Math.round(H * scale);
     const temp = document.createElement('canvas');
     const tctx = temp.getContext('2d');
     try {
         for (let k = 0; k < n; k++) {
             renderScreenshotToCanvas(indices[k], temp, tctx, dims, 1);
             const dx = Math.round(k * (W + spacingPx) * scale);
-            octx.drawImage(temp, 0, 0, W, H, dx, 0, Math.round(W * scale), Math.round(H * scale));
+            octx.save();
+            octx.beginPath();
+            roundRect(octx, dx, 0, dw, dh, cornerRadius);
+            octx.clip();
+            octx.drawImage(temp, 0, 0, W, H, dx, 0, dw, dh);
+            octx.restore();
             if (onProgress) { onProgress(k + 1, n); await new Promise(r => setTimeout(r, 0)); }
         }
     } finally {
