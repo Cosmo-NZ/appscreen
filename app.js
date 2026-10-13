@@ -1484,10 +1484,77 @@ function initSync() {
     setupPopoutEventListeners();
     setupSliderResetButtons();
     initFontPicker();
+    initPaneResizer();
     updateGradientStopsUI();
     updateCanvas();
     // Then load saved data asynchronously
     init();
+}
+
+// Draggable divider that sets the left pane's width. The width is a CSS variable
+// on the grid and is persisted per browser so it survives reloads.
+const LEFT_PANE_MIN = 260;
+const LEFT_PANE_MAX = 640;
+const LEFT_PANE_DEFAULT = 320;
+const LEFT_PANE_STORAGE_KEY = 'leftPaneWidth';
+
+function setLeftPaneWidth(px, persist) {
+    const w = Math.max(LEFT_PANE_MIN, Math.min(LEFT_PANE_MAX, Math.round(px)));
+    document.documentElement.style.setProperty('--left-pane-width', w + 'px');
+    if (persist) {
+        try { localStorage.setItem(LEFT_PANE_STORAGE_KEY, String(w)); } catch (e) { /* ignore */ }
+    }
+    return w;
+}
+
+function initPaneResizer() {
+    const resizer = document.getElementById('left-pane-resizer');
+    if (!resizer) return;
+
+    // Restore any saved width.
+    try {
+        const saved = parseInt(localStorage.getItem(LEFT_PANE_STORAGE_KEY), 10);
+        if (!isNaN(saved)) setLeftPaneWidth(saved, false);
+    } catch (e) { /* ignore */ }
+
+    const container = document.querySelector('.app-container');
+    let dragging = false;
+
+    const onMove = (e) => {
+        if (!dragging) return;
+        // Width is the pointer's distance from the container's left edge.
+        const left = container.getBoundingClientRect().left;
+        setLeftPaneWidth(e.clientX - left, false);
+        e.preventDefault();
+    };
+    const onUp = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        resizer.classList.remove('dragging');
+        document.body.classList.remove('pane-resizing');
+        try { resizer.releasePointerCapture(e.pointerId); } catch (_) {}
+        // Persist the final width, and nudge the preview to the new size.
+        const current = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--left-pane-width'), 10);
+        if (!isNaN(current)) setLeftPaneWidth(current, true);
+        if (typeof updateCanvas === 'function') updateCanvas();
+    };
+
+    resizer.addEventListener('pointerdown', (e) => {
+        dragging = true;
+        resizer.classList.add('dragging');
+        document.body.classList.add('pane-resizing');
+        try { resizer.setPointerCapture(e.pointerId); } catch (_) {}
+        e.preventDefault();
+    });
+    resizer.addEventListener('pointermove', onMove);
+    resizer.addEventListener('pointerup', onUp);
+    resizer.addEventListener('pointercancel', onUp);
+
+    // Double-click resets to the default width.
+    resizer.addEventListener('dblclick', () => {
+        setLeftPaneWidth(LEFT_PANE_DEFAULT, true);
+        if (typeof updateCanvas === 'function') updateCanvas();
+    });
 }
 
 // Save state to IndexedDB for current project
