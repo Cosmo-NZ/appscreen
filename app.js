@@ -4706,6 +4706,30 @@ function setupEventListeners() {
     document.getElementById('export-current').addEventListener('click', exportCurrent);
     document.getElementById('export-all').addEventListener('click', exportAll);
 
+    // Combine-into-one-image dialog
+    document.getElementById('combine-export').addEventListener('click', openCombineDialog);
+    document.getElementById('combine-cancel').addEventListener('click', closeCombineDialog);
+    document.getElementById('combine-confirm').addEventListener('click', exportCombined);
+    document.getElementById('combine-modal').addEventListener('click', (e) => {
+        if (e.target.id === 'combine-modal') closeCombineDialog();
+    });
+    document.getElementById('combine-select-all').addEventListener('change', (e) => {
+        state.screenshots.forEach((_, i) => {
+            const cb = document.getElementById('combine-item-' + i);
+            if (cb) cb.checked = e.target.checked;
+        });
+        scheduleCombinePreview();
+    });
+    document.getElementById('combine-spacing').addEventListener('input', (e) => {
+        const px = parseInt(e.target.value, 10) || 0;
+        document.getElementById('combine-spacing-value').textContent = px + ' px';
+        document.getElementById('combine-fill-group').style.display = px > 0 ? '' : 'none';
+        scheduleCombinePreview();
+    });
+    document.getElementById('combine-scale').addEventListener('change', scheduleCombinePreview);
+    document.getElementById('combine-fill-enabled').addEventListener('change', scheduleCombinePreview);
+    document.getElementById('combine-fill-color').addEventListener('input', scheduleCombinePreview);
+
     // Position presets
     document.querySelectorAll('.position-preset').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -6284,6 +6308,8 @@ function updateScreenshotList() {
     const exportAll = document.getElementById('export-all');
     if (exportCurrent) { exportCurrent.disabled = isEmpty; exportCurrent.style.opacity = isEmpty ? '0.4' : ''; exportCurrent.style.pointerEvents = isEmpty ? 'none' : ''; }
     if (exportAll) { exportAll.disabled = isEmpty; exportAll.style.opacity = isEmpty ? '0.4' : ''; exportAll.style.pointerEvents = isEmpty ? 'none' : ''; }
+    const combineBtn = document.getElementById('combine-export');
+    if (combineBtn) { combineBtn.disabled = isEmpty; combineBtn.style.opacity = isEmpty ? '0.4' : ''; combineBtn.style.pointerEvents = isEmpty ? 'none' : ''; }
 
     // Show transfer mode hint if active
     if (state.transferTarget !== null && state.screenshots.length > 1) {
@@ -8009,18 +8035,16 @@ function zipNameForAllLanguages() {
     return `screenshots_${state.outputDevice}_all-languages.zip`;
 }
 
-// Returns a save target, or null if the user cancelled the picker.
-async function pickZipSaveTarget(suggestedName) {
+// Returns a save target, or null if the user cancelled the picker. `accept` is a
+// File System Access API accept map, e.g. { 'application/zip': ['.zip'] }.
+async function pickSaveTarget(suggestedName, description, accept) {
     if (typeof window.showSaveFilePicker !== 'function') {
         return { kind: 'download', name: suggestedName };
     }
     try {
         const handle = await window.showSaveFilePicker({
             suggestedName: suggestedName,
-            types: [{
-                description: 'ZIP archive',
-                accept: { 'application/zip': ['.zip'] }
-            }]
+            types: [{ description: description, accept: accept }]
         });
         return { kind: 'handle', handle: handle };
     } catch (err) {
@@ -8031,7 +8055,11 @@ async function pickZipSaveTarget(suggestedName) {
     }
 }
 
-async function writeZipToTarget(target, blob) {
+function pickZipSaveTarget(suggestedName) {
+    return pickSaveTarget(suggestedName, 'ZIP archive', { 'application/zip': ['.zip'] });
+}
+
+async function writeBlobToTarget(target, blob) {
     if (target.kind === 'handle') {
         const writable = await target.handle.createWritable();
         await writable.write(blob);
@@ -8121,7 +8149,7 @@ async function exportAllForLanguage(lang, target) {
 
     showExportProgress('Saving...', '', 98);
     try {
-        await writeZipToTarget(target, content);
+        await writeBlobToTarget(target, content);
     } catch (err) {
         hideExportProgress();
         await showAppAlert('Could not save the ZIP file: ' + (err && err.message ? err.message : err), 'error');
@@ -8199,7 +8227,7 @@ async function exportAllLanguages(target) {
 
     showExportProgress('Saving...', '', 98);
     try {
-        await writeZipToTarget(target, content);
+        await writeBlobToTarget(target, content);
     } catch (err) {
         hideExportProgress();
         await showAppAlert('Could not save the ZIP file: ' + (err && err.message ? err.message : err), 'error');
@@ -8208,6 +8236,194 @@ async function exportAllLanguages(target) {
 
     showExportProgress('Complete!', '', 100);
     await new Promise(resolve => setTimeout(resolve, 1500));
+    hideExportProgress();
+}
+
+// ===== Combine screenshots into a single stitched image =====
+//
+// Lays the selected slides out in a horizontal row and renders them into one
+// wide PNG. Slides sit flush by default; a spacing slider inserts an even gap.
+// Continuation devices are shifted by the chosen spacing (not the App Store
+// gutter) so they flow seamlessly across the join at any spacing - a stitched
+// image has no store gutter fighting the effect.
+
+// Indices of the slides ticked in the combine dialog, in slide order.
+function combineSelectedIndices() {
+    return state.screenshots
+        .map((_, i) => i)
+        .filter(i => {
+            const cb = document.getElementById('combine-item-' + i);
+            return cb && cb.checked;
+        });
+}
+
+// Reads the combine dialog's controls into a plain options object.
+function combineOptions() {
+    const spacing = parseInt(document.getElementById('combine-spacing').value, 10) || 0;
+    const scale = parseFloat(document.getElementById('combine-scale').value) || 1;
+    const fillOn = document.getElementById('combine-fill-enabled').checked;
+    const fill = fillOn ? document.getElementById('combine-fill-color').value : null;
+    return { spacing, scale, fill };
+}
+
+// Build the stitched canvas. Each slide is rendered synchronously into a temp
+// canvas via renderScreenshotToCanvas() - the same unified path the preview and
+// export use - and composited into its slot. renderScreenshotToCanvas draws 3D
+// synchronously, so there is no frame-lag and no settle timing to get wrong.
+async function renderCombinedCanvas(indices, spacingPx, scale, fillColor, onProgress = null) {
+    const dims = getCanvasDimensions();
+    const W = dims.width, H = dims.height, n = indices.length;
+    const totalW = n * W + Math.max(0, n - 1) * spacingPx;
+
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(totalW * scale));
+    out.height = Math.max(1, Math.round(H * scale));
+    const octx = out.getContext('2d');
+    if (fillColor) { octx.fillStyle = fillColor; octx.fillRect(0, 0, out.width, out.height); }
+
+    // Make sure the 3D model is loaded if any selected slide, or a neighbour it
+    // continues from, is in 3D mode.
+    const needs3D = indices.some(i => {
+        const s = state.screenshots;
+        return s[i]?.screenshot?.use3D || s[i - 1]?.screenshot?.use3D || s[i + 1]?.screenshot?.use3D;
+    });
+    if (needs3D && typeof showThreeJS === 'function') {
+        showThreeJS(true);
+        const t0 = Date.now();
+        while (!(typeof phoneModelLoaded !== 'undefined' && phoneModelLoaded)) {
+            if (Date.now() - t0 > 15000) break;
+            await new Promise(r => setTimeout(r, 100));
+        }
+    }
+
+    const realSeam = state.seamGap;
+    // Continuation must reconnect across the stitch gap, not the store gutter.
+    state.seamGap = W > 0 ? spacingPx / W : 0;
+    const temp = document.createElement('canvas');
+    const tctx = temp.getContext('2d');
+    try {
+        for (let k = 0; k < n; k++) {
+            renderScreenshotToCanvas(indices[k], temp, tctx, dims, 1);
+            const dx = Math.round(k * (W + spacingPx) * scale);
+            octx.drawImage(temp, 0, 0, W, H, dx, 0, Math.round(W * scale), Math.round(H * scale));
+            if (onProgress) { onProgress(k + 1, n); await new Promise(r => setTimeout(r, 0)); }
+        }
+    } finally {
+        state.seamGap = realSeam;
+    }
+    return out;
+}
+
+function canvasToPngBlob(cnv) {
+    return new Promise(resolve => cnv.toBlob(resolve, 'image/png'));
+}
+
+// Debounced live preview inside the dialog.
+let combinePreviewTimer = null;
+function scheduleCombinePreview() {
+    if (combinePreviewTimer !== null) clearTimeout(combinePreviewTimer);
+    combinePreviewTimer = setTimeout(renderCombinePreview, 220);
+}
+
+async function renderCombinePreview() {
+    combinePreviewTimer = null;
+    const indices = combineSelectedIndices();
+    const preview = document.getElementById('combine-preview');
+    const dimsLabel = document.getElementById('combine-dims');
+    const confirmBtn = document.getElementById('combine-confirm');
+    if (!preview) return;
+    const octx = preview.getContext('2d');
+
+    if (indices.length === 0) {
+        preview.width = 1; preview.height = 1;
+        octx.clearRect(0, 0, 1, 1);
+        if (dimsLabel) dimsLabel.textContent = 'Select at least one screenshot';
+        if (confirmBtn) confirmBtn.disabled = true;
+        return;
+    }
+    if (confirmBtn) confirmBtn.disabled = false;
+
+    const { spacing, scale, fill } = combineOptions();
+    const dims = getCanvasDimensions();
+    const W = dims.width, H = dims.height, n = indices.length;
+    const fullW = n * W + Math.max(0, n - 1) * spacing;
+    if (dimsLabel) {
+        dimsLabel.textContent = `${Math.round(fullW * scale)} × ${Math.round(H * scale)} px`;
+    }
+
+    // Render the preview small enough to fit the dialog.
+    const maxPreviewW = 460;
+    const previewScale = Math.min(maxPreviewW / fullW, 140 / H);
+    const combined = await renderCombinedCanvas(indices, spacing, previewScale, fill);
+    preview.width = combined.width;
+    preview.height = combined.height;
+    octx.clearRect(0, 0, combined.width, combined.height);
+    octx.drawImage(combined, 0, 0);
+}
+
+function openCombineDialog() {
+    if (state.screenshots.length === 0) return;
+    const list = document.getElementById('combine-list');
+    list.innerHTML = '';
+    state.screenshots.forEach((s, i) => {
+        const row = document.createElement('label');
+        row.className = 'combine-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.id = 'combine-item-' + i;
+        cb.checked = true;
+        cb.addEventListener('change', () => { syncCombineSelectAll(); scheduleCombinePreview(); });
+        const name = document.createElement('span');
+        name.className = 'combine-item-name';
+        name.textContent = (s.name && s.name.trim()) ? s.name : ('Screenshot ' + (i + 1));
+        row.appendChild(cb);
+        row.appendChild(name);
+        list.appendChild(row);
+    });
+    document.getElementById('combine-select-all').checked = true;
+    document.getElementById('combine-modal').classList.add('visible');
+    renderCombinePreview();
+}
+
+function closeCombineDialog() {
+    if (combinePreviewTimer !== null) { clearTimeout(combinePreviewTimer); combinePreviewTimer = null; }
+    document.getElementById('combine-modal').classList.remove('visible');
+}
+
+function syncCombineSelectAll() {
+    const boxes = state.screenshots.map((_, i) => document.getElementById('combine-item-' + i)).filter(Boolean);
+    const all = boxes.length > 0 && boxes.every(b => b.checked);
+    document.getElementById('combine-select-all').checked = all;
+}
+
+async function exportCombined() {
+    const indices = combineSelectedIndices();
+    if (indices.length === 0) {
+        await showAppAlert('Select at least one screenshot to combine.', 'info');
+        return;
+    }
+    // Open the save picker first, while the confirm click still counts as a user
+    // gesture - the stitch render below can take several seconds.
+    const target = await pickSaveTarget('lineup.png', 'PNG image', { 'image/png': ['.png'] });
+    if (!target) return; // cancelled
+
+    const { spacing, scale, fill } = combineOptions();
+    closeCombineDialog();
+    showExportProgress('Combining...', `Rendering ${indices.length} screenshots`, 5);
+    try {
+        const combined = await renderCombinedCanvas(indices, spacing, scale, fill, (done, total) => {
+            showExportProgress('Combining...', `Screenshot ${done} of ${total}`, Math.round((done / total) * 85));
+        });
+        showExportProgress('Saving...', '', 95);
+        const blob = await canvasToPngBlob(combined);
+        await writeBlobToTarget(target, blob);
+    } catch (err) {
+        hideExportProgress();
+        await showAppAlert('Could not create the combined image: ' + (err && err.message ? err.message : err), 'error');
+        return;
+    }
+    showExportProgress('Complete!', '', 100);
+    await new Promise(resolve => setTimeout(resolve, 1200));
     hideExportProgress();
 }
 

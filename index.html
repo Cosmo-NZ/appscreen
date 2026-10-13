@@ -243,6 +243,14 @@
                         </svg>
                         Export All
                     </button>
+                    <button class="export-btn secondary combine-btn" id="combine-export" title="Combine selected screenshots into one image">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="4" width="5" height="16" rx="1"/>
+                            <rect x="9.5" y="4" width="5" height="16" rx="1"/>
+                            <rect x="16" y="4" width="5" height="16" rx="1"/>
+                        </svg>
+                        Combine…
+                    </button>
                 </div>
             </div>
         </div>
@@ -1856,6 +1864,65 @@
 
             <div class="modal-buttons">
                 <button class="modal-btn modal-btn-cancel" id="export-language-modal-cancel">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Combine Into One Image Modal -->
+    <div class="modal-overlay" id="combine-modal">
+        <div class="modal combine-modal">
+            <div class="modal-icon" style="background: rgba(10, 132, 255, 0.2);">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--accent);">
+                    <rect x="3" y="4" width="5" height="16" rx="1"/>
+                    <rect x="9.5" y="4" width="5" height="16" rx="1"/>
+                    <rect x="16" y="4" width="5" height="16" rx="1"/>
+                </svg>
+            </div>
+            <h3 class="modal-title">Combine into one image</h3>
+            <p class="modal-message">Stitch the selected screenshots side by side into a single PNG.</p>
+
+            <label class="combine-item combine-select-all-row">
+                <input type="checkbox" id="combine-select-all" checked>
+                <span class="combine-item-name"><strong>Select all</strong></span>
+            </label>
+            <div class="combine-list" id="combine-list"></div>
+
+            <div class="control-group">
+                <label class="control-label">Spacing</label>
+                <div class="control-row">
+                    <input type="range" id="combine-spacing" min="0" max="300" step="5" value="0">
+                    <span class="range-value" id="combine-spacing-value">0 px</span>
+                </div>
+            </div>
+
+            <div class="control-group combine-fill-group" id="combine-fill-group" style="display: none;">
+                <label class="combine-item">
+                    <input type="checkbox" id="combine-fill-enabled">
+                    <span class="combine-item-name">Fill gaps with colour</span>
+                    <input type="color" id="combine-fill-color" value="#000000" style="margin-left: auto;">
+                </label>
+            </div>
+
+            <div class="control-group">
+                <label class="control-label">Output scale</label>
+                <div class="control-row">
+                    <select id="combine-scale" class="combine-scale-select">
+                        <option value="1">100%</option>
+                        <option value="0.75">75%</option>
+                        <option value="0.5">50%</option>
+                        <option value="0.25">25%</option>
+                    </select>
+                    <span class="range-value" id="combine-dims"></span>
+                </div>
+            </div>
+
+            <div class="combine-preview-wrap">
+                <canvas id="combine-preview"></canvas>
+            </div>
+
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-cancel" id="combine-cancel">Cancel</button>
+                <button class="modal-btn modal-btn-confirm" id="combine-confirm">Export image</button>
             </div>
         </div>
     </div>

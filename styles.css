@@ -3498,3 +3498,55 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 18px;
     line-height: 1;
 }
+/* Combine-into-one-image dialog */
+.combine-modal { max-width: 560px; width: 92vw; }
+.combine-list {
+    max-height: 170px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 14px;
+}
+.combine-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+.combine-item:hover { background: var(--bg-tertiary); }
+.combine-item input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
+.combine-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combine-select-all-row { margin-bottom: 6px; }
+.combine-scale-select {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+.combine-preview-wrap {
+    margin: 12px 0 4px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60px;
+    /* checkerboard so transparent gaps are visible in the preview */
+    background-image:
+        linear-gradient(45deg, rgba(255,255,255,0.06) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,0.06) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.06) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.06) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+.combine-preview-wrap canvas { max-width: 100%; height: auto; border-radius: 4px; }
+.combine-btn { width: 100%; margin-top: 8px; justify-content: center; }
