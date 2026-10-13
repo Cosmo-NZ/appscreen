@@ -3496,7 +3496,7 @@ input[type="range"]::-webkit-slider-thumb {
     line-height: 1;
 }
 /* Combine-into-one-image dialog */
-.combine-modal { max-width: 560px; width: 92vw; }
+.combine-modal { max-width: 560px; width: 92vw; max-height: 92vh; overflow-y: auto; }
 .combine-list {
     max-height: 170px;
     overflow-y: auto;

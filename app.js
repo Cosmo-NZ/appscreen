@@ -8343,9 +8343,13 @@ async function renderCombinePreview() {
         dimsLabel.textContent = `${Math.round(fullW * scale)} × ${Math.round(H * scale)} px`;
     }
 
-    // Render the preview small enough to fit the dialog.
-    const maxPreviewW = 460;
-    const previewScale = Math.min(maxPreviewW / fullW, 140 / H);
+    // Render the preview as large as comfortably fits the dialog: fill the
+    // preview area's width, capped at a reasonable height. Bigger slides make
+    // the (proportional) rounded corners read clearly rather than looking square.
+    const wrap = preview.parentElement;
+    const availW = Math.max(200, (wrap ? wrap.clientWidth : 460) - 24);
+    const maxPreviewH = 300;
+    const previewScale = Math.min(availW / fullW, maxPreviewH / H);
     const combined = await renderCombinedCanvas(indices, spacing, previewScale, fill);
     preview.width = combined.width;
     preview.height = combined.height;
